@@ -18,7 +18,7 @@
 | 真实平台 API 接入 | 🟡 飞书 / 钉钉适配器完成；飞书 token 被租户策略拦截（21001），钉钉 token 实测可用 |
 | 大模型 / OCR 真实调用 | 🚧 未实现：当前按关键词规则 Mock |
 | PostgreSQL / Redis 实装 | 🚧 仅有 DDL 与仓储接口，实际始终走内存 |
-| 前端统一入口 | ✅ Mock 数据版完成：收件箱 / 待办 / 全链路回放 / 平台账号，16 条前端测试通过 |
+| 前端统一入口 | ✅ Mock 数据版完成：收件箱 / 待办 / 全链路回放 / 平台账号，40 条前端测试通过 |
 
 ## 功能特性（对应业务闭环五要素）
 
@@ -121,7 +121,7 @@ pnpm e2e
 | `pnpm e2e` | 一键端到端冒烟（Windows PowerShell） |
 | `pnpm e2e:sh` | 一键端到端冒烟（macOS / Linux / Git Bash） |
 | `pnpm --filter @unimsg/web dev` | 前端开发模式（:5173，Mock 数据） |
-| `pnpm --filter @unimsg/web test` | 前端单元测试（16 条） |
+| `pnpm --filter @unimsg/web test` | 前端单元测试（40 条） |
 
 `e2e` / `e2e:sh` 都可直接追加端口参数，例如 `pnpm e2e -Port 3102`、`pnpm e2e:sh 3102`。
 
@@ -192,7 +192,7 @@ pnpm e2e
 
 15 项冒烟覆盖：健康检查、三平台接入、幂等去重、鉴权 401、异步回复、`synced` 状态、trace 五个事件、计数一致性。截图见 `test.photos/`。
 
-前端（`packages/web`）当前为 Mock 数据版，已通过 `tsc --noEmit`、`vite build` 与 16 条 Vitest 用例；覆盖列表/筛选、回复状态机、标记完成、全链路日志、实时事件与卡片交互。接口形状对齐 `API对接说明.md`，接后端时只需替换 `src/store/index.ts` 的数据源装配。
+前端（`packages/web`）当前为 Mock 数据版，已通过 `tsc --noEmit`、`vite build` 与 40 条 Vitest 用例；覆盖列表/筛选、回复状态机、标记完成、全链路日志、实时事件与卡片交互。接口形状对齐 `API对接说明.md`，接后端时只需替换 `src/store/index.ts` 的数据源装配。
 
 冒烟之外的补充手工验证：
 
