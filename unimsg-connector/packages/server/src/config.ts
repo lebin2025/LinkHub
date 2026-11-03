@@ -22,8 +22,42 @@ loadEnv({ path: resolve(process.cwd(), '.env') });
 export type LlmProvider = 'mock' | 'wenxin' | 'qwen';
 export type OcrProvider = 'mock' | 'tencent';
 
+/** 一个邮箱账号 = 一个可收可发的数据源（IMAP 收 + SMTP 发） */
+export interface MailAccount {
+  key: string; // 环境变量的账号段，如 qq / 163
+  label: string; // 展示名
+  address: string;
+  authCode: string; // 授权码（不是网页登录密码）
+  imapHost: string;
+  imapPort: number;
+  smtpHost: string;
+  smtpPort: number;
+  folders: string[]; // 监听的邮箱目录，默认只有 INBOX
+}
+
 function bool(v: string | undefined, def = false): boolean {
   return v ? v === 'true' || v === '1' : def;
+}
+
+function mailAccount(key: string, label: string, defaults: { imapHost: string; smtpHost: string }): MailAccount | null {
+  const env = key.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const address = process.env[`MAIL_${env}_ADDRESS`] ?? '';
+  const authCode = process.env[`MAIL_${env}_AUTH_CODE`] ?? '';
+  if (!address || !authCode) return null;
+  return {
+    key,
+    label,
+    address,
+    authCode,
+    imapHost: process.env[`MAIL_${env}_IMAP_HOST`] ?? defaults.imapHost,
+    imapPort: Number(process.env[`MAIL_${env}_IMAP_PORT`] ?? 993),
+    smtpHost: process.env[`MAIL_${env}_SMTP_HOST`] ?? defaults.smtpHost,
+    smtpPort: Number(process.env[`MAIL_${env}_SMTP_PORT`] ?? 465),
+    folders: (process.env[`MAIL_${env}_FOLDERS`] ?? 'INBOX')
+      .split(',')
+      .map((f) => f.trim())
+      .filter(Boolean),
+  };
 }
 
 export const config = {
@@ -85,6 +119,18 @@ export const config = {
       aesKey: process.env.WECOM_AES_KEY ?? '',
       corpId: process.env.WECOM_CORP_ID ?? '',
       agentId: process.env.WECOM_AGENT_ID ?? '',
+      // 自建应用 Secret：换 access_token 用（后台"眼睛"图标查看，别点重置）
+      secret: process.env.WECOM_SECRET ?? '',
     },
+  },
+
+  // 邮箱数据源：IMAP 轮询收信 + SMTP 回写。授权码只存服务端。
+  mail: {
+    enabled: bool(process.env.MAIL_ENABLED, false),
+    pollMs: Math.max(5, Number(process.env.MAIL_POLL_SECONDS ?? 45)) * 1000,
+    accounts: [
+      mailAccount('qq', 'QQ邮箱', { imapHost: 'imap.qq.com', smtpHost: 'smtp.qq.com' }),
+      mailAccount('163', '网易邮箱', { imapHost: 'imap.163.com', smtpHost: 'smtp.163.com' }),
+    ].filter((a): a is MailAccount => a !== null),
   },
 };

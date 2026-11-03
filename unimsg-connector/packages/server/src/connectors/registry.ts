@@ -6,11 +6,13 @@ import { Platform, PlatformConnector } from '@unimsg/shared';
 import { feishuConnector } from './feishu';
 import { dingtalkConnector } from './dingtalk';
 import { wecomConnector } from './wecom';
+import { mailConnector } from './mail/mail';
 
 export const connectors: Record<Platform, PlatformConnector> = {
   [Platform.FEISHU]: feishuConnector,
   [Platform.DINGTALK]: dingtalkConnector,
   [Platform.WECOM]: wecomConnector,
+  [Platform.MAIL]: mailConnector,
 };
 
 export function getConnector(platform: Platform): PlatformConnector {

@@ -6,6 +6,7 @@ export const PLATFORM_META: Record<Platform, { name: string; short: string; colo
   [Platform.FEISHU]: { name: '飞书', short: '飞', color: '#3370ff', soft: '#eaf0ff' },
   [Platform.DINGTALK]: { name: '钉钉', short: '钉', color: '#0089ff', soft: '#e6f4ff' },
   [Platform.WECOM]: { name: '企业微信', short: '企', color: '#07c160', soft: '#e8f9ee' },
+  [Platform.MAIL]: { name: '邮箱', short: '邮', color: '#f59e0b', soft: '#fff5e0' },
 };
 
 /** 状态机展示元信息 */

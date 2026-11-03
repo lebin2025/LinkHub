@@ -10,6 +10,8 @@ export function listAccounts() {
   return [
     { platform: Platform.FEISHU, configured: Boolean(p.feishu.appId && p.feishu.appSecret) },
     { platform: Platform.DINGTALK, configured: Boolean(p.dingtalk.appKey && p.dingtalk.appSecret) },
-    { platform: Platform.WECOM, configured: Boolean(p.wecom.corpId && p.wecom.token) },
+    // 企微真实收发需要 corpId + 应用 Secret + AgentId（Token/AESKey 只服务回调验签与解密）
+    { platform: Platform.WECOM, configured: Boolean(p.wecom.corpId && p.wecom.secret && p.wecom.agentId) },
+    { platform: Platform.MAIL, configured: config.mail.enabled && config.mail.accounts.length > 0 },
   ];
 }

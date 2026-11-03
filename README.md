@@ -8,14 +8,14 @@
 
 | 模块 | 状态 |
 |---|---|
-| 共享消息契约（`shared/message.ts`） | ✅ 完成（含回写所需的 `conversation`） |
-| 三平台适配器（飞书 / 钉钉 / 企业微信） | ✅ 飞书、钉钉真实接入已实现；企微仍为 Mock |
+| 共享消息契约（`shared/message.ts`） | ✅ 完成（含回写所需的 `conversation`，邮箱另加 `mailMeta`） |
+| 平台适配器（飞书 / 钉钉 / 企业微信 / 邮箱） | ✅ 飞书、钉钉、邮箱真实接入并实测；企微真实实现与 19 条单测已完成，卡在后台没有自建应用可取凭据 |
 | 消息中枢：状态机 / 幂等 / 异步回写 / 回流 | ✅ 完成 |
 | 安全：Bearer 鉴权 + WebSocket 握手校验 | ✅ 完成 |
 | 闭环日志（traceId 全链路可回放） | ✅ 完成 |
 | 边界降级：限流退避、OCR 置信度、意图失败回退、DLQ | ✅ 完成 |
-| 单元测试 / 端到端冒烟 | ✅ 22 条单测 / 15 项冒烟全部通过（2026-11-03 实测） |
-| 真实平台 API 接入 | ✅ 钉钉端到端跑通（Stream 收 + 机器人回写实测成功）； 飞书适配器完成但 token 被租户策略拦截（21001） |
+| 单元测试 / 端到端冒烟 | ✅ 60 条单测 / 16 项冒烟全部通过（2026-11-03 实测） |
+| 真实平台 API 接入 | ✅ 钉钉端到端跑通（Stream 收 + 机器人回写）；✅ 邮箱四跳闭环跑通（163 SMTP 发 → QQ IMAP 收 → QQ SMTP 回写 → 163 IMAP 收回信）； 飞书适配器完成但 token 被租户策略拦截（21001） |
 | 大模型 / OCR 真实调用 | 🚧 未实现：当前按关键词规则 Mock |
 | PostgreSQL / Redis 实装 | 🚧 仅有 DDL 与仓储接口，实际始终走内存 |
 | 前端统一入口 | ✅ Mock 数据版完成：收件箱 / 待办 / 全链路回放 / 平台账号，40 条前端测试通过 |
@@ -173,7 +173,7 @@ MOCK=false DINGTALK_STREAM=true pnpm --filter @unimsg/server start
 
 | 变量 | 说明 |
 |---|---|
-| `MOCK` | `true`（默认）= 全部 Mock；`false` = 飞书 / 钉钉走真实接口（企微仍 Mock） |
+| `MOCK` | `true`（默认）= 全部 Mock；`false` = 飞书 / 钉钉 / 企微 / 邮箱走真实接口 |
 | `API_TOKEN` | 入口鉴权令牌（默认 `dev-token`，生产务必修改） |
 | `DATABASE_URL` / `REDIS_URL` | 预留项：不影响存储实现；填 `DATABASE_URL` 只会让启动日志显示 `postgres(未启用·当前内存)` |
 | `LLM_PROVIDER` / `LLM_API_KEY` | 预留：真实调用未实现，始终走 Mock |
@@ -187,7 +187,14 @@ MOCK=false DINGTALK_STREAM=true pnpm --filter @unimsg/server start
 | `DINGTALK_CLIENT_ID` / `DINGTALK_CLIENT_SECRET` | 钉钉应用凭证（旧版字段 `DINGTALK_APP_KEY` / `_APP_SECRET` 仍兼容） |
 | `DINGTALK_ROBOT_CODE` | 机器人编码，企业内部应用通常等于 Client ID |
 | `DINGTALK_AES_TOKEN` / `DINGTALK_AES_KEY` | 钉钉 HTTP 回调的 Token / 加密密钥 |
-| `WECOM_*` | 企微凭据（真实接入未实现） |
+| `WECOM_CORP_ID` / `WECOM_AGENT_ID` / `WECOM_SECRET` | 企微自建应用凭据（企业ID + AgentId + 应用 Secret，换 access_token 与真实发送用） |
+| `WECOM_TOKEN` / `WECOM_AES_KEY` | 企微回调的 Token / EncodingAESKey（SHA1 验签与 AES 解密） |
+| `MAIL_ENABLED` | `true` 时启动邮箱轮询器（默认 `false`） |
+| `MAIL_POLL_SECONDS` | 轮询间隔秒数，默认 `45` |
+| `MAIL_QQ_ADDRESS` / `MAIL_QQ_AUTH_CODE` | QQ 邮箱地址 + **授权码**（不是网页登录密码） |
+| `MAIL_163_ADDRESS` / `MAIL_163_AUTH_CODE` | 163 邮箱地址 + 授权密码 |
+| `MAIL_<KEY>_IMAP_HOST` / `_SMTP_HOST` | 默认 `imap.qq.com`/`smtp.qq.com`、`imap.163.com`/`smtp.163.com`，一般不用改 |
+| `MAIL_<KEY>_FOLDERS` | 监听目录，默认 `INBOX`；反垃圾把信扔进垃圾箱时可写 `INBOX,Junk` |
 
 ## 真实接入配置
 
@@ -203,6 +210,24 @@ MOCK=false DINGTALK_STREAM=true pnpm --filter @unimsg/server start
 - 钉钉：事件订阅 → 推送方式选「HTTP 推送」，地址填 `https://<域名>/api/webhook/dingtalk`；把 Token / AES Key 填进 `DINGTALK_AES_TOKEN` / `DINGTALK_AES_KEY`，后端会校验 `timestamp + sign` 并解密 `encrypt`。
 - 飞书：事件与回调 → 订阅方式选「将事件发送至开发者服务器」，地址填 `https://<域名>/api/webhook/feishu`，添加事件 `im.message.receive_v1`；Encrypt Key 与 Verification Token 填进 `.env`，服务会对 `url_verification` 自动回传 challenge。
 
+企业微信（代码与单测就绪，缺自建应用）：
+
+1. 后台「应用管理 → 自建」创建应用，可见范围选自己 → 详情页取 `AgentId`、点「眼睛」复制 `Secret`（**不要点重置**）。
+2. 该应用「接收消息 → 设置 API 接收」：URL 填 `https://<公网域名>/api/webhook/wecom`，随机生成 Token / EncodingAESKey，同时写入 `.env` 的 `WECOM_TOKEN` / `WECOM_AES_KEY`。GET 握手会解密 `echostr` 回明文，服务已支持。
+3. `.env` 补 `WECOM_CORP_ID`（我的企业 → 企业ID）/ `WECOM_AGENT_ID` / `WECOM_SECRET` 并置 `MOCK=false`；回写走 `message/send`，回调报文是 XML 且带 AES 密文，服务按 SHA1 验签后解密。
+
+邮箱（QQ / 163）是第 4 类数据源，**不需要公网地址**，本机就能收也能发：
+
+1. 网页端开启 IMAP/SMTP 服务并生成授权码（授权码不是网页登录密码）：
+   - QQ：设置 → 账号与安全 → 安全设置 → `POP3/IMAP/SMTP… 服务` → 开启服务（要先过 QQ 密保：用手机发短信 `1` 到 `1069 0700 511`）→ 生成授权码。
+   - 163：设置 → POP3/SMTP/IMAP → 开启服务（短信验证；实测长网关号会报「短信验证错误」，改发短号 `1069 0163 222` 才通过）→ 新增授权密码，**只显示一次**，当场抄下来。
+2. `.env` 填 `MAIL_QQ_ADDRESS` / `MAIL_QQ_AUTH_CODE`（或 `MAIL_163_*`），设 `MAIL_ENABLED=true`、`MOCK=false`。
+3. 启动后端，日志出现 `[mail] xxx 已连接，基线 UID=n`。首轮只立 UID 水位基线，**不把历史邮件灌进中枢**；之后每轮导入 UID 更大的新信。
+4. 回写走 SMTP（465 隐式 TLS + AUTH LOGIN），发回原发件人，主题自动加 `Re:` 并带 `In-Reply-To`；发信地址必须等于登录账号，否则被判冒用。
+5. 邮箱没有平台回调，所以真实模式下 `/api/webhook/mail` 一律验签失败——邮件事件只能由本机轮询 ingest，这是防伪造的有意设计。
+
+> 两个协议坑位已写进实现：IMAP 登录后必须发 `ID` 命令（RFC 2971），否则网易/QQ 会按 `Unsafe Login` 拒绝；取正文用 `BODY.PEEK[]`，不改用户邮箱的已读状态。
+
 > 反向代理场景下把 `https://<域名>/api` 整体转到 `127.0.0.1:3001` 即可，路由本身不依赖前缀。
 
 ## 测试与验证
@@ -210,7 +235,7 @@ MOCK=false DINGTALK_STREAM=true pnpm --filter @unimsg/server start
 实测环境：Windows 11、Git Bash、Node 24.14.0、pnpm 9.15.9（corepack）、Python 3.12.10。
 
 - `pnpm typecheck`：`shared`、`server`、`web` 三包检查通过。
-- `pnpm test`：22 条单测全绿（连接器 5 + 主链路 4 + 边界降级 3 + 真实适配器 10），耗时约 0.3s。
+- `pnpm test`：60 条单测全绿（连接器 5 + 主链路 4 + 边界降级 3 + 真实适配器 10 + 邮箱 16 + IMAP 读取器 3 + 企微 19），耗时约 0.5s。
 - `pnpm --filter @unimsg/web test`：40 条前端用例全绿（7 个测试文件）。
 - `pnpm e2e`（PowerShell，默认 3001）：15 项断言全部 PASS，`SMOKE OK`。
 - `pnpm e2e:sh`（Git Bash，3121 端口）：15 项断言全部 PASS，`SMOKE OK`。
@@ -227,6 +252,15 @@ MOCK=false DINGTALK_STREAM=true pnpm --filter @unimsg/server start
 - 钉钉端到端已跑通（Stream 模式，本机无公网）：手机钉钉给机器人发 3 条消息 → 全部实时入库并带出 `conversation`；调 `reply` 接口 → 状态走完 `replied → sent → synced`，`/api/health` 的 `sent` 递增，机器人消息真的回到钉钉会话。
 - 钉钉 `POST /v1.0/oauth2/accessToken` 用真实 Client ID/Secret 换取 accessToken 成功；未认证企业也可用。
 - 飞书：`POST /auth/v3/tenant_access_token/internal` 返回 `21001 Access denied due to platform policy`。已排除密钥错误（错误密钥返回 `10014`）、IP 白名单（未开启）、应用未发布（已发布 1.0.0 且状态「已启用」）、测试企业通道（建了测试企业并关联应用，仍 `21001`）——属租户级平台策略，需要企业认证或符合策略的租户。
+
+- 邮箱四跳闭环已机器验证（本机无公网，2026-11-03 13:58–14:00 实测）：
+  1. 自研 SMTP 客户端从 `smtp.163.com:465` 发信到 QQ → 回执 `250 Mail OK queued as gzga-smtp-mtada-g1-1…`；
+  2. 30s 轮询从 `imap.qq.com:993` 把它收进中枢 → `externalId=qq:INBOX:18`、`status=received`；
+  3. 调 `POST /api/messages/:traceId/reply` → 走 **QQ 的 SMTP** 回写 → 状态 `sent → synced`，`/api/health` 的 `sent=1`；
+  4. 回信落到 163 收件箱后被轮询收回 → `externalId=163:INBOX:1771448864`、`from=3605405275@qq.com`，`mailMeta.inReplyTo` 是 QQ 真实返回的 `tencent_…@qq.com`。
+  全程中文主题与正文无损（`Re: 闭环测试B` / `第三跳：这是中枢经 QQ SMTP 回写的中文…`），两个发信账号（163、QQ）与两个收信账号都各跑通一次。
+- 反垃圾行为不可预测：同一发件人（163→QQ）第一封被判进 `Junk`、第二封直接进 `INBOX`，所以监听目录做成可配置项 `MAIL_<KEY>_FOLDERS`（默认 `INBOX`），并把目录写进 `externalId`（`<账号>:<目录>:<UID>`）避免跨目录 UID 撞车。
+- 侧证：网易因我们的 IMAP 登录给账号发了「新设备登录提醒」邮件。
 
 15 项冒烟覆盖：健康检查、三平台接入、幂等去重、鉴权 401、异步回复、`synced` 状态、trace 五个事件、计数一致性。截图见 `test.photos/`。
 
@@ -245,8 +279,11 @@ MOCK=false DINGTALK_STREAM=true pnpm --filter @unimsg/server start
 
 ## 已知限制
 
-- 飞书真实收发被租户策略 `21001` 拦死，代码与配置都已就绪，但要企业认证或换合规租户才能验证；企业微信仍是 Mock。
+- 飞书真实收发被租户策略 `21001` 拦死，代码与配置都已就绪，但要企业认证或换合规租户才能验证。
+- 企业微信：真实适配器与 19 条单测已完成（SHA1 验签、AES 加解密、XML 解析、GET 握手、`gettoken`→`message/send`），但后台「应用管理 → 自建」是空的，没有应用就没有 AgentId / Secret / Token / EncodingAESKey，因此真实发送尚未实测。
 - 钉钉真实收发依赖 Stream 长连接（本机可用）或公网回调；`DINGTALK_STREAM` 默认关闭，需要显式开启。
+- 邮箱没有平台回调：真实模式下 `/api/webhook/mail` 一律验签失败，新信只能由本机轮询 ingest，默认 45s 一轮，不是实时。
+- 邮箱的 SMTP 客户端只支持 465 隐式 TLS（未实现 587 STARTTLS）；IMAP 水位存在内存里，进程重启会重新立基线，重启间隙到达的邮件会被跳过。
 - 飞书权限里 `im:message`（获取与发送单聊、群组消息）尚未开通，只有 `im:message:send_as_bot`。
 - 前端默认跑内存 Mock 数据；配 `VITE_API_BASE` / `VITE_API_TOKEN` 后即接本仓库后端（已实测列表、回复与 WS 推送）。
 - 真实大模型/OCR、PostgreSQL/Redis 尚未实现。

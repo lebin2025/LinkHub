@@ -83,6 +83,7 @@ export function AppShell() {
               { label: '飞书', value: Platform.FEISHU },
               { label: '钉钉', value: Platform.DINGTALK },
               { label: '企微', value: Platform.WECOM },
+              { label: '邮箱', value: Platform.MAIL },
             ]}
           />
 

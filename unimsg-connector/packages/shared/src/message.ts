@@ -10,6 +10,8 @@ export enum Platform {
   FEISHU = 'feishu',
   DINGTALK = 'dingtalk',
   WECOM = 'wecom',
+  /** 邮箱（QQ / 163 …）：IMAP 轮询收、SMTP 发，可挂多个账号 */
+  MAIL = 'mail',
 }
 
 /** 闭环状态机（文档 1.3）：received→processing→replied→sent→synced，失败进 failed */
@@ -59,6 +61,8 @@ export interface UnifiedMessage {
   updatedAt: string;
   /** 仅后端内部使用：回写后平台返回的内容（不暴露敏感信息给前端） */
   platformReply?: string;
+  /** 仅后端内部使用：邮箱回写需要的会话信息（账号 / 被回复的 Message-ID / 原主题） */
+  mailMeta?: { account: string; inReplyTo: string; subject: string };
 }
 
 /**

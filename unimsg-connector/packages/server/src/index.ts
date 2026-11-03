@@ -11,6 +11,7 @@ import { OcrService } from './services/ocr';
 import { RateLimiter } from './services/rateLimiter';
 import { MessageService } from './services/message';
 import { startDingtalkStream } from './stream/dingtalkStream';
+import { startMailPoller } from './stream/mailPoller';
 import { initWs, wsBroadcast } from './ws';
 
 const repo = new InMemoryRepository();
@@ -38,3 +39,5 @@ if (config.dingtalkStream) {
     console.error('[stream] 启动失败:', e instanceof Error ? e.message : e);
   });
 }
+
+startMailPoller(svc);

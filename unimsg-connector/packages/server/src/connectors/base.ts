@@ -19,6 +19,7 @@ export const sentBox: Record<string, unknown[]> = {
   [Platform.FEISHU]: [],
   [Platform.DINGTALK]: [],
   [Platform.WECOM]: [],
+  [Platform.MAIL]: [],
 };
 
 export function mockSend(platform: Platform, payload: unknown): { ok: boolean } {

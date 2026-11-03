@@ -38,6 +38,20 @@ export async function postJson(
   return data;
 }
 
+/** GET 取 JSON（企业微信 gettoken 一类只认 GET 的接口）。 */
+export async function getJson(url: string, timeoutMs = config.llmTimeoutMs): Promise<any> {
+  const res = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(timeoutMs) });
+  const text = await res.text();
+  let data: any = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { raw: text };
+  }
+  if (!res.ok) throw new Error(`${url} HTTP ${res.status}: ${text.slice(0, 200)}`);
+  return data;
+}
+
 export async function feishuTenantToken(): Promise<string> {
   const { appId, appSecret } = config.platforms.feishu;
   if (!appId || !appSecret) throw new Error('FEISHU_APP_ID / FEISHU_APP_SECRET 未配置');
@@ -73,4 +87,26 @@ export async function dingtalkAccessToken(): Promise<string> {
   const ttl = Math.max(60, Number(data.expireIn ?? 7200) - 120);
   tokens.set(cacheKey, { token: data.accessToken, exp: Date.now() + ttl * 1000 });
   return data.accessToken;
+}
+
+/**
+ * 企业微信 access_token：GET /cgi-bin/gettoken?corpid=&corpsecret=（应用 Secret）。
+ * 与飞书/钉钉共用同一份缓存，提前 120s 过期，避免边界失效。
+ */
+export async function wecomAccessToken(): Promise<string> {
+  const { corpId, secret } = config.platforms.wecom;
+  if (!corpId || !secret) throw new Error('WECOM_CORP_ID / WECOM_SECRET 未配置');
+
+  const cacheKey = `wecom:${corpId}:${secret}`;
+  const hit = tokens.get(cacheKey);
+  if (hit && hit.exp > Date.now()) return hit.token;
+
+  const qs = new URLSearchParams({ corpid: corpId, corpsecret: secret });
+  const data = await getJson(`https://qyapi.weixin.qq.com/cgi-bin/gettoken?${qs.toString()}`);
+  if (data.errcode !== 0 || !data.access_token) {
+    throw new Error(`企业微信 access_token 获取失败: ${data.errcode ?? 'unknown'} ${data.errmsg ?? ''}`);
+  }
+  const ttl = Math.max(60, Number(data.expires_in ?? 7200) - 120);
+  tokens.set(cacheKey, { token: data.access_token, exp: Date.now() + ttl * 1000 });
+  return data.access_token;
 }
