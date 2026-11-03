@@ -86,13 +86,33 @@ pnpm install
 
 未全局安装 pnpm 时，可用 Node 自带的 corepack：`corepack pnpm install`（本仓库实测即用此方式，pnpm 9.15.9）。
 
+### 本地演示（无需域名 / 无需平台账号）
+
+两种跑法任选：
+
+- **纯前端 Mock**：只起前端，内置数据，可完整走通「收件箱 → 回复 → 回放」。
+
+  ```bash
+  pnpm --filter @unimsg/web dev      # http://127.0.0.1:5173
+  ```
+
+- **前后端联调（推荐）**：先起后端，再给前端配两行环境变量，页面左侧会显示「真实后端 · 已接入 LinkHub Server」。
+
+  ```bash
+  pnpm --filter @unimsg/server start
+  printf 'VITE_API_BASE=http://127.0.0.1:3001\nVITE_API_TOKEN=dev-token\n' > packages/web/.env
+  pnpm --filter @unimsg/web dev
+  ```
+
+  想灌几条演示消息，可在另一个终端用 `scripts/smoke.py`（先启动后端），或直接调 `POST /api/webhook/feishu|dingtalk`。
+
 启动后端（默认 `http://127.0.0.1:3001`，Mock 模式，无需任何平台账号）：
 
 ```bash
 pnpm --filter @unimsg/server start
 ```
 
-启动前端（默认 `http://127.0.0.1:5173`，内置 Mock 数据，不依赖后端）：
+启动前端（默认 `http://127.0.0.1:5173`，不建 `packages/web/.env` 时为纯 Mock 数据）：
 
 ```bash
 pnpm --filter @unimsg/web dev
@@ -106,7 +126,7 @@ pnpm e2e
 
 > 端口冲突时改端口用 `pnpm e2e -Port 3102`。不要写成 `pnpm e2e -- -Port 3102`：pnpm 9 会把 `--` 原样传给脚本，PowerShell 解析参数失败。
 > 想手动验证，服务启动后另开终端执行 `python scripts/smoke.py http://127.0.0.1:3001`。
-> Windows 上若 `python3` 指向微软商店占位符，`scripts/e2e.sh` 会以退出码 49 失败：改用 `pnpm e2e`（PowerShell 版自动探测 `python`），或让 `python3` 指向真实解释器。
+> `scripts/e2e.sh` 会自动探测 `python` / `python3`；都找不到时提示安装 Python 3。
 
 ## 常用命令
 
@@ -178,11 +198,18 @@ pnpm e2e
 
 实测环境：Windows 11、Git Bash、Node 24.14.0、pnpm 9.15.9（corepack）、Python 3.12.10。
 
-- `pnpm typecheck`：`shared` 与 `server` 双包检查通过。
+- `pnpm typecheck`：`shared`、`server`、`web` 三包检查通过。
 - `pnpm test`：22 条单测全绿（连接器 5 + 主链路 4 + 边界降级 3 + 真实适配器 10），耗时约 0.3s。
+- `pnpm --filter @unimsg/web test`：40 条前端用例全绿（7 个测试文件）。
 - `pnpm e2e`（PowerShell，默认 3001）：15 项断言全部 PASS，`SMOKE OK`。
 - `pnpm e2e:sh`（Git Bash，3121 端口）：15 项断言全部 PASS，`SMOKE OK`。
 - `pnpm dev` / `pnpm start`：均能正常监听并通过 `/api/health`。
+
+本地全栈联调（2026-11-03，MOCK=true）：
+
+- 后端 3001 + 前端 5173（`packages/web/.env` 配 `VITE_API_BASE`），页面显示「真实后端 · 已接入 LinkHub Server」。
+- Webhook 灌入 4 条消息 → 收件箱计数 4、待办 2；中文与 `conversation` 字段显示正常。
+- 页面内回复 → 后端状态走完 `received → processing → replied → sent → synced`，`/api/health` 中 `sent=1`，前端经 WebSocket 实时更新，无需刷新。
 
 真实凭据联调（2026-11-03）：
 
@@ -192,7 +219,7 @@ pnpm e2e
 
 15 项冒烟覆盖：健康检查、三平台接入、幂等去重、鉴权 401、异步回复、`synced` 状态、trace 五个事件、计数一致性。截图见 `test.photos/`。
 
-前端（`packages/web`）当前为 Mock 数据版，已通过 `tsc --noEmit`、`vite build` 与 40 条 Vitest 用例；覆盖列表/筛选、回复状态机、标记完成、全链路日志、实时事件与卡片交互。接口形状对齐 `API对接说明.md`，接后端时只需替换 `src/store/index.ts` 的数据源装配。
+前端（`packages/web`）支持双模式：不配置 `VITE_API_BASE` 时走 `MockApi`（纯前端演示），配置后走 `HttpApi + WsRealtime` 对接本仓库后端；已通过 `tsc --noEmit`、`vite build` 与 40 条 Vitest 用例。
 
 冒烟之外的补充手工验证：
 
@@ -212,7 +239,6 @@ pnpm e2e
 - 飞书权限里 `im:message`（获取与发送单聊、群组消息）尚未开通，只有 `im:message:send_as_bot`。
 - 前端当前使用内存 Mock 数据，尚未接入后端 REST/WS；接入方案见 `packages/web/README.md`。
 - 真实大模型/OCR、PostgreSQL/Redis 尚未实现。
-- `scripts/e2e.sh` 写死 `python3`，Windows 上可能撞到微软商店占位符（退出码 49）。
 - Webhook 缺少 body 校验：空 payload 会被接收，`externalId` 退化为 `unknown`，之后的空 payload 全部按重复处理。
 - Mock 下不带签名头时按 `mock` 放行，仅适合本地演示；`dev*` 前缀签名同样放行。
 - 所有消息、闭环日志、DLQ 都在内存里，进程重启即清空。

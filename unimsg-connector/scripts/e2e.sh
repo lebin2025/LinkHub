@@ -8,6 +8,16 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BASE="http://127.0.0.1:$PORT"
 LOG="$ROOT/scripts/e2e-server.log"
 
+# Windows 上 python3 可能指向微软商店占位符，回退到 python
+PY="python3"
+if ! command -v "$PY" >/dev/null 2>&1 || ! "$PY" --version >/dev/null 2>&1; then
+  PY="python"
+fi
+if ! command -v "$PY" >/dev/null 2>&1; then
+  echo "[e2e] 未找到 Python，请安装 Python 3 后重试"
+  exit 1
+fi
+
 cd "$ROOT"
 echo "[e2e] 工作目录: $ROOT"
 echo "[e2e] 启动后端服务 (port=$PORT) ..."
@@ -34,4 +44,4 @@ if [ "$ready" -ne 1 ]; then
 fi
 
 echo "[e2e] 服务就绪，开始冒烟..."
-python3 scripts/smoke.py "$BASE"
+"$PY" scripts/smoke.py "$BASE"
