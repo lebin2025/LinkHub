@@ -92,6 +92,13 @@ export interface RunProbesOptions {
   timeoutMs?: number;
   /** 邮箱探针超时（默认 25s，比 HTTP 探针宽：要完成 TLS + IMAP/SMTP 登录往返） */
   mailTimeoutMs?: number;
+  /**
+   * 无论是否有 60020，都额外采集一次本机出口公网 IP 放进报告：
+   * 企业微信「可信 IP」绑定的是出口 IP，电脑重启/换网/开代理后可能变化，
+   * 让用户每次跑 doctor 都能一眼看到"现在该加哪个 IP"。
+   * 失败只是少一条附加信息，不影响自检结论。
+   */
+  alwaysFetchEgressIp?: boolean;
   /** 邮箱探针的注入点：单测传假实现，生产不传（走真实客户端，只读） */
   deps?: MailProbeDeps;
 }
@@ -944,6 +951,15 @@ export async function runProbes(input: ProbeInput, options: RunProbesOptions = {
           })),
         );
       }
+    }
+  }
+
+  if (options.alwaysFetchEgressIp && !egressIp) {
+    try {
+      const ip = await fetchEgressIp();
+      if (ip) egressIp = ip;
+    } catch {
+      // 出口 IP 只是附加信息，采集失败不影响主结论
     }
   }
 

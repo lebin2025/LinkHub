@@ -226,6 +226,8 @@ async function main(): Promise<number> {
   const { checks, egressIp } = await runProbes(collectProbeInput(), {
     platformFilter: options.platformFilter,
     timeoutMs: PROBE_TIMEOUT_MS,
+    // 企微可信 IP 绑的是出口公网 IP，每次自检都打印当前值，重启/换网后可直接对照
+    alwaysFetchEgressIp: true,
   });
 
   const report: DoctorReportInput = {

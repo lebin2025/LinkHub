@@ -355,6 +355,24 @@ test('出口 IP 探测：两个接口都失败时返回 null（不阻断主流�
   assert.equal(ip, null);
 });
 
+test('runProbes：alwaysFetchEgressIp 时即使全平台 SKIP 也采集出口 IP（供对照企微可信IP）', async () => {
+  const result = await withStubFetch(
+    (url) => {
+      if (url.includes('api.ipify.org')) return jsonResponse({ ip: '203.0.113.55' });
+      throw new Error(`未预期的请求：${url}`);
+    },
+    () => runProbes(probeInput(), { alwaysFetchEgressIp: true }),
+  );
+  assert.equal(result.egressIp, '203.0.113.55');
+  assert.ok(result.checks.length > 0);
+  assert.ok(result.checks.every((c) => c.status === 'SKIP'), '未启用真实通道时不应有探针请求');
+});
+
+test('runProbes：不传 alwaysFetchEgressIp 时不额外采集（默认行为兼容）', async () => {
+  const result = await runProbes(probeInput());
+  assert.equal(result.egressIp, undefined);
+});
+
 // ---------------------------------------------------------------------------
 // 邮箱错误映射（纯函数）
 // ---------------------------------------------------------------------------

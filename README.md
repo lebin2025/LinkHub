@@ -139,7 +139,7 @@ MAIL_MODE=real
 | 安全：Bearer 鉴权 + WebSocket 握手校验 | ✅ 完成 |
 | 闭环日志（traceId 全链路可回放） | ✅ 完成（Mock 与真实通道分开描述） |
 | 边界降级：限流退避、OCR 置信度、意图失败回退、DLQ | ✅ 完成 |
-| 单元测试 / 端到端冒烟 | ✅ 2026-11-04 实测：server 134 条、web 48 条、e2e 20 项断言全绿 |
+| 单元测试 / 端到端冒烟 | ✅ 2026-11-04 实测：server 136 条、web 48 条、e2e 20 项断言全绿 |
 | 真实平台 API 接入 | ✅ 钉钉端到端（Stream 收 + 机器人回写）；✅ 邮箱四跳闭环；🟡 飞书适配器完成，token 被租户策略 `21001` 拦截；🟡 企微适配器完成、`gettoken` 通过，真实发送卡可信 IP |
 | CI | ✅ `.github/workflows/ci.yml`：typecheck + server 测试 + web 测试 + web build + `e2e:sh` |
 | 大模型 / OCR 真实调用 | 🚧 未实现：当前按关键词规则 Mock（配置项已预留） |
@@ -364,7 +364,7 @@ pnpm install
 | 命令 | 实测结果 |
 |---|---|
 | `pnpm typecheck` | `shared` / `server` / `web` 三包检查通过（exit 0） |
-| `pnpm test`（server） | **134 passed / 134**（11 个测试文件，含 doctor 探针、报告渲染与脱敏测试），耗时约 0.5s |
+| `pnpm test`（server） | **136 passed / 136**（11 个测试文件，含 doctor 探针、报告渲染与脱敏测试），耗时约 0.5s |
 | `pnpm test:web` | **48 passed / 48**（8 个测试文件：HttpApi / WsRealtime / AppStore / MockApi / AccountsPage / MessageCard / ReplyComposer / format） |
 | `pnpm e2e`（Windows PowerShell，默认 3001） | **20 项断言全部 PASS + `SMOKE OK`**，exit 0（约 10s）；强制四平台 `mock`，完全离线 |
 | `pnpm e2e:sh`（Git Bash，3123 端口） | 同上，**20 项 PASS + `SMOKE OK`**（CI 使用此命令） |
@@ -380,6 +380,7 @@ pnpm install
 - 探针：钉钉 accessToken、`DINGTALK_ROBOT_CODE`、Stream 通道三条全 **PASS**（Stream 模式下 AES Token/Key 不再被误报为缺失）；企微 `gettoken` **PASS**；163 与 QQ 两个邮箱的 IMAP 登录基线与 SMTP 认证四条全 **PASS**（地址脱敏为 `1******@163.com` / `3******@qq.com`）。
 - 唯一 **FAIL**：飞书 `tenant_access_token` 返回 `21001 Access denied due to platform policy`，建议文案已指向「企业认证 / 换合规租户」。
 - 说明：HTTP 类探针超时 8s；IMAP/SMTP 登录往返较慢，邮箱探针超时放宽到 25s（避免假超时）。
+- 出口公网 IP：`pnpm run doctor` 每次都会打印当前出口公网 IP（企业微信可信 IP 绑定的就是它）；本次实测 2026-11-03 → 11-04 同一网络出口 IP 保持不变——电脑重启一般不影响，但重启路由器 / 切换网络 / 开代理后需要重新核对。
 
 ### 真实接入实测记录
 
@@ -411,7 +412,7 @@ pnpm install
 ## 已知限制
 
 - **飞书真实收发被租户策略 `21001` 拦住**：代码与配置都已就绪，但要企业认证或换合规租户才能验证；此外 `im:message`（获取与发送单聊、群组消息）权限尚未开通，当前只有 `im:message:send_as_bot`。
-- **企业微信**：真实适配器与 19 条单测已就绪、`gettoken` 已通，但**卡在「企业可信 IP」**——当前出口 IP 不稳定/未加入白名单，真实发送端到端尚未验证（典型报错 60020）；同时缺回调 Token/EncodingAESKey，暂时收不到消息。
+- **企业微信**：真实适配器与 19 条单测已就绪、`gettoken` 已通，但**卡在「企业可信 IP」**——当前出口 IP 不在白名单，真实发送端到端尚未验证（典型报错 60020）；同时缺回调 Token/EncodingAESKey，暂时收不到消息。`pnpm run doctor` 每次都会打印当前出口公网 IP：电脑重启一般不影响（公网出口在网关/运营商侧），但重拨路由器、换网络、开代理后可能变化，演示前先核对即可。
 - **钉钉**真实收消息依赖 Stream 长连接（本机可用）或公网 HTTP 回调；`DINGTALK_STREAM` 默认关闭，需要显式开启并在后台发布版本。
 - **邮箱**没有平台回调：真实模式下 `/api/webhook/mail` 一律验签失败，新信只能由本机轮询 ingest，默认 45s 一轮，不是实时。
 - 邮箱 IMAP 的 UID 水位存在内存里，进程重启会重新立基线，**重启间隙到达的邮件会被跳过**。
@@ -433,7 +434,7 @@ pnpm install
 | `pnpm dev` | 开发模式（tsx watch） |
 | `pnpm start` | 启动服务（:3001） |
 | `pnpm typecheck` | TypeScript 类型检查（shared + server + web） |
-| `pnpm test` | 服务端单元测试（134 条，含 doctor） |
+| `pnpm test` | 服务端单元测试（136 条，含 doctor） |
 | `pnpm test:web` | 前端单元测试（48 条） |
 | `pnpm run doctor` | 只读自检：环境 + 模式 + 逐平台探针 + 出口公网 IP + 中文修复建议；有 FAIL 时退出码 1 |
 | `pnpm run doctor -- --platform=feishu,mail` | 只检查指定平台 |
