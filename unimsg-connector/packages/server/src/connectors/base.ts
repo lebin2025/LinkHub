@@ -26,7 +26,14 @@ export const sentBox: Record<string, unknown[]> = {
 
 export function mockSend(platform: Platform, payload: unknown): { ok: boolean; mode: 'mock' } {
   sentBox[platform].push({ at: new Date().toISOString(), payload });
-  console.log(`[mock-send] -> ${platform}:`, JSON.stringify(payload));
+  // 日志不打正文/接收人（避免演示日志被转发时泄露消息内容）；完整 payload 仍保留在 sentBox，前端/回放可见
+  let size = 0;
+  try {
+    size = Buffer.byteLength(JSON.stringify(payload));
+  } catch {
+    size = 0;
+  }
+  console.log(`[mock-send] -> ${platform}: 模拟发送（未调用真实平台，正文/接收人不出现在日志里，payload ${size} 字节）`);
   return { ok: true, mode: 'mock' };
 }
 

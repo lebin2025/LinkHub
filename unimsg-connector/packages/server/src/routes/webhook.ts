@@ -5,7 +5,7 @@
 import express, { Request, Router } from 'express';
 import { Platform } from '@unimsg/shared';
 import { connectors } from '../connectors/registry';
-import { MessageService } from '../services/message';
+import { InvalidPlatformEvent, isEmptyPlatformEvent, MessageService } from '../services/message';
 
 /**
  * 企微/钉钉用 XML 推消息，app 级的 express.json 不认这个 content-type，
@@ -82,6 +82,18 @@ export function webhookRouter(svc: MessageService) {
       res.status(401).json({ ok: false, error: 'verify failed' });
       return;
     }
+
+    // 验签通过后、入库之前再校验「事件体确实承载了内容」：
+    // mock 验签较宽松，空 body / 空 XML 壳 / 空对象都可能走到这里，
+    // 必须在写 trace 与幂等表之前拒绝，否则会占住 externalId='unknown' 的去重键。
+    if (isEmptyPlatformEvent(body)) {
+      res.status(400).json({
+        ok: false,
+        error: '空事件体：已拒绝入库（未写 trace、未写幂等表）',
+      });
+      return;
+    }
+
     try {
       const result = await svc.onPlatformEvent(platform, body);
       // 企微回调要求返回明文 success，否则会重试
@@ -91,6 +103,11 @@ export function webhookRouter(svc: MessageService) {
       }
       res.status(200).json({ ok: true, duplicate: result.duplicate ?? false });
     } catch (e) {
+      // 畸形事件（缺 externalId 等）是「调用方的问题」→ 400；其余异常仍 500
+      if (e instanceof InvalidPlatformEvent) {
+        res.status(400).json({ ok: false, error: e.message });
+        return;
+      }
       res.status(500).json({ ok: false, error: e instanceof Error ? e.message : 'error' });
     }
   });

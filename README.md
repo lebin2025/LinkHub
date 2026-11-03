@@ -13,6 +13,18 @@ LinkHub 把飞书、钉钉、企业微信、邮箱的消息与待办收拢到一
 
 > 换账号的完整分步 checklist（后台点什么、填哪些变量、常见报错）见 [docs/swap-accounts.md](docs/swap-accounts.md)。
 
+## 从这里开始（30 秒选路径）
+
+| 你想做什么 | 直接怎么做 | 预计耗时 | 详细步骤 |
+|---|---|---|---|
+| **我只想看效果**（零账号、零平台配置） | `cd unimsg-connector` → `corepack pnpm install` → `pnpm e2e` → 起后端+前端 | 约 5 分钟 | [docs/quickstart.md](docs/quickstart.md) |
+| **我要换成自己的账号**（飞书 / 钉钉 / 企微 / 邮箱任选） | 复制 `.env.example` 为 `.env`，只填目标平台 → `pnpm run doctor` → 启动 | 约 10 分钟 | 下文「换一个账号，只要 3 步」+ [docs/swap-accounts.md](docs/swap-accounts.md) |
+| **我要现场演示 / 录视频** | 按分镜脚本走，含演示前 10 分钟检查清单与纯 Mock 兜底 | 5–8 分钟 | [docs/demo-script.md](docs/demo-script.md) |
+| **我要交付/打包给评审** | `pnpm run deliver`（git archive，自动排除 `.env`/日志/node_modules）+ 打包后自检 | 约 5 分钟 | [docs/delivery-checklist.md](docs/delivery-checklist.md) |
+
+> 新手常见卡点（pnpm 未装、端口占用、`.env` 拼错、401、代理超时等）有一张「现象 → 原因 → 一句话解决」表，见 [docs/quickstart.md](docs/quickstart.md#常见卡点一张表)。
+> 完整风险清单（按严重度排序、含修复状态）见 [docs/risk-register.md](docs/risk-register.md)。
+
 ## 换一个账号，只要 3 步
 
 ```bash
@@ -135,16 +147,17 @@ MAIL_MODE=real
 | 平台适配器（飞书 / 钉钉 / 企业微信 / 邮箱） | ✅ 代码与单测全部完成；钉钉 Stream 真实收发、邮箱四跳闭环已实测；飞书卡租户策略 `21001`；企微卡「企业可信 IP」 |
 | 邮箱数据源 | ✅ 任意数量 / 任意服务商（8 个常见服务商预设 + `custom`）；IMAP 收 + SMTP 发；993/465 隐式 TLS 与 143/587/25 STARTTLS 均支持 |
 | `doctor` 自检 | ✅ 环境 + 模式 + 逐平台探针（飞书 token / 钉钉 token + 机器人 + 通道 / 企微 gettoken / 邮箱 IMAP+SMTP 登录）+ 出口公网 IP + 中文修复建议；支持 `--json`、`--platform=`、`--help` |
-| 消息中枢：状态机 / 幂等 / 异步回写 / 回流 | ✅ 完成 |
+| 真实平台 API 接入 | ✅ 钉钉 Stream 端到端（真实收 + 回写）；✅ 邮箱四跳闭环；🟡 飞书适配器完成，token 被租户策略 `21001` 拦截；🟡 企微 `gettoken` 通过，真实发送卡「企业可信 IP」 |
+| 消息中枢：状态机 / 幂等 / 异步回写 / 回流 | ✅ 完成（状态回流单向防倒退） |
 | 安全：Bearer 鉴权 + WebSocket 握手校验 | ✅ 完成 |
 | 闭环日志（traceId 全链路可回放） | ✅ 完成（Mock 与真实通道分开描述） |
 | 边界降级：限流退避、OCR 置信度、意图失败回退、DLQ | ✅ 完成 |
-| 单元测试 / 端到端冒烟 | ✅ 2026-11-04 实测：server 136 条、web 48 条、e2e 20 项断言全绿 |
-| 真实平台 API 接入 | ✅ 钉钉端到端（Stream 收 + 机器人回写）；✅ 邮箱四跳闭环；🟡 飞书适配器完成，token 被租户策略 `21001` 拦截；🟡 企微适配器完成、`gettoken` 通过，真实发送卡可信 IP |
-| CI | ✅ `.github/workflows/ci.yml`：typecheck + server 测试 + web 测试 + web build + `e2e:sh` |
+| 单元测试 / 端到端冒烟 | ✅ 2026-11-04 实测：server **213** 条、web **73** 条、e2e **20** 项断言、契约自检 **46** 项全绿 |
+| 上手与交付文档 | ✅ [quickstart.md](docs/quickstart.md)（5 分钟上手）/ [demo-script.md](docs/demo-script.md)（演示脚本）/ [delivery-checklist.md](docs/delivery-checklist.md)（交付打包）/ [risk-register.md](docs/risk-register.md)（风险台账）；README 顶部有「30 秒选路径」 |
+| 健壮性加固（本轮） | ✅ webhook 空/畸形事件 400 不入库、端口占用中文提示、CORS 白名单、状态回流防倒退、日志脱敏、空 `API_TOKEN` 不关鉴权、邮箱嵌套 MIME/水位持久化/中文目录 |
 | 大模型 / OCR 真实调用 | 🚧 未实现：当前按关键词规则 Mock（配置项已预留） |
 | PostgreSQL / Redis 实装 | 🚧 仅有 DDL 与仓储接口，实际始终走内存 |
-| 前端统一入口 | ✅ 四类数据源版本：收件箱 / 待办 / 全链路回放 / 平台账号（含模式 Tag、缺失变量、模拟发送计数） |
+| 前端统一入口 | ✅ 四类数据源版本：收件箱 / 待办 / 全链路回放 / 平台账号（含模式 Tag、缺失变量、模拟发送计数、首启 3 步引导、断连如实显示） |
 
 ## 功能特性（对应业务闭环五要素）
 
@@ -185,29 +198,34 @@ LinkHub-test/
 ├── README.md
 ├── LICENSE
 ├── docs/
-│   └── swap-accounts.md        # 换账号指南：逐平台 checklist / errcode 排错 / 邮箱预设表
+│   ├── quickstart.md           # 5 分钟上手（三类用户分流 + 常见卡点表）
+│   ├── swap-accounts.md        # 换账号指南：逐平台 checklist / errcode 排错 / 邮箱预设表
+│   ├── demo-script.md          # 5–8 分钟现场演示脚本（含演示前检查与纯 Mock 兜底）
+│   ├── delivery-checklist.md   # 交付/打包 checklist
+│   └── risk-register.md        # 用户风险台账（31 条，按 P0–P3 排序）
 ├── .github/workflows/ci.yml    # typecheck + 测试 + web build + e2e:sh
 ├── documents/                  # 设计文档（初赛精简版 / 决赛完整版）
-├── test.photos/                # 端到端冒烟截图
+├── test.photos/                # 历史冒烟截图（2026-11-02 旧版，界面已改版，仅作记录）
 └── unimsg-connector/           # pnpm monorepo 源码
     ├── packages/shared/src/message.ts      # 前后端共享契约（含 delivery）
-    ├── packages/web/                       # 前端（React + AntD，账号页含模式标注）
+    ├── packages/web/                       # 前端（React + AntD，账号页含模式标注、首启 3 步引导）
     │   └── README.md                       # 前端说明（模式 / 环境变量相关小节）
     ├── packages/server/src/
     │   ├── config/runtime.ts  # 运行模式解析 / 邮箱多账号解析（可替换性核心）
     │   ├── config.ts          # 服务端私有配置（凭据只在此读取）
     │   ├── doctor.ts          # pnpm run doctor 入口
-    │   ├── doctor/            # 探针（probes）与报告渲染（report，含脱敏）
+    │   ├── doctor/            # 探针（probes）、报告渲染（report）、环境变量拼写检查（env-check）
     │   ├── connectors/        # 飞书 / 钉钉 / 企微 / 邮箱适配器（crypto / real 为真实接入工具）
     │   ├── core/              # 闭环日志 / 幂等 / 指标
     │   ├── services/          # 消息中枢 / 回流 / LLM / OCR / 限流
-    │   ├── stream/            # 钉钉 Stream 长连接 / 邮箱 IMAP 轮询器
+    │   ├── stream/            # 钉钉 Stream 长连接 / 邮箱 IMAP 轮询器（水位持久化）
     │   ├── routes/            # health / webhook / messages（含 /api/accounts）
     │   ├── middlewares/auth.ts
     │   ├── db/                # 仓储 + migrations/001_init.sql
     │   └── app.ts / index.ts / ws.ts
-    ├── scripts/               # smoke.py + e2e.ps1 / e2e.sh
-    └── .env.example           # 配置模板（配置的权威来源）
+    ├── scripts/               # smoke.py + e2e.ps1 / e2e.sh + deliver.mjs（交付打包）
+    ├── .env.example           # 配置模板（配置的权威来源）
+    └── .mail-watermarks.json  # （运行时生成，已 gitignore）邮箱 UID 水位，重启续传
 ```
 
 ## 快速开始
@@ -263,7 +281,9 @@ pnpm install
 | 变量 | 说明 |
 |---|---|
 | `SERVER_PORT` | 服务端口，默认 `3001` |
-| `API_TOKEN` | 入口鉴权令牌（默认 `dev-token`，生产务必修改；REST 用 Bearer，`/ws?token=` 用同名令牌） |
+| `SERVER_HOST` | 监听地址；留空 = 所有网卡（局域网/容器可访问）。只想本机访问可设 `127.0.0.1`（注意：局域网访问时默认 `dev-token` 有风险，见安全提示） |
+| `API_TOKEN` | 入口鉴权令牌（默认 `dev-token`，生产务必修改；REST 用 Bearer，`/ws?token=` 用同名令牌）。**留空会回退 `dev-token` 并告警、仍强制鉴权**；`NODE_ENV=production` 且仍为空/默认时拒绝启动 |
+| `CORS_ORIGINS` | CORS 白名单，逗号分隔 Origin（如 `http://127.0.0.1:5173`）。**留空 = 放行所有来源**（兼容本地演示）；填了则名单外 Origin 返回 403 JSON |
 | `DATABASE_URL` / `REDIS_URL` | 预留项：不影响存储实现；填 `DATABASE_URL` 只会让启动日志显示 `postgres(未启用·当前内存)` |
 | `FEISHU_MODE` / `DINGTALK_MODE` / `WECOM_MODE` / `MAIL_MODE` | 每平台运行模式，`auto`（默认）/ `real` / `mock`，见上文「运行模式」 |
 | `MOCK` | **已废弃**，仅为兼容旧配置保留；只在没写 `*_MODE` 时作为默认策略，会打印废弃警告 |
@@ -312,6 +332,7 @@ pnpm install
 | 变量 | 说明 |
 |---|---|
 | `MAIL_POLL_SECONDS` | IMAP 轮询间隔秒数，默认 `45`（最小 5）；不是实时推送 |
+| `MAIL_STATE_FILE` | UID 水位状态文件路径（默认 `unimsg-connector/.mail-watermarks.json`，已 gitignore）；**重启后续传水位、不再漏信**；异常重建目录（UIDVALIDITY 变化）会自动重导 |
 | `MAIL_ENABLED` | 兼容旧行为：不填 = 有账号就开启轮询；`false` = 只发不收 |
 | `MAIL_ACCOUNTS` | 显式声明要启用的账号（只加载列出的 key），如 `qq,163,work`；**可省略**，省略时自动发现所有 `MAIL_<KEY>_ADDRESS` |
 | `MAIL_<KEY>_ADDRESS` / `MAIL_<KEY>_AUTH_CODE` | 邮箱地址 + **授权码**（网页端开启 IMAP/SMTP 后生成，不是登录密码）；`KEY` 可随意取（`qq` / `163` / `work` / `school2` …） |
@@ -364,14 +385,27 @@ pnpm install
 | 命令 | 实测结果 |
 |---|---|
 | `pnpm typecheck` | `shared` / `server` / `web` 三包检查通过（exit 0） |
-| `pnpm test`（server） | **136 passed / 136**（11 个测试文件，含 doctor 探针、报告渲染与脱敏测试），耗时约 0.5s |
-| `pnpm test:web` | **48 passed / 48**（8 个测试文件：HttpApi / WsRealtime / AppStore / MockApi / AccountsPage / MessageCard / ReplyComposer / format） |
+| `pnpm test`（server） | **213 passed / 213**（16 个测试文件：连接器、真实适配器、MIME、IMAP 水位/目录、webhook HTTP 级、app/CORS、doctor 探针/渲染/拼写检查等），约 1–2s |
+| `pnpm test:web` | **73 passed / 73**（11 个测试文件：HttpApi / WsRealtime / AppStore / MockApi / AccountsPage / FirstRunGuide / footerState / InboxPage / MessageCard / ReplyComposer / format） |
 | `pnpm e2e`（Windows PowerShell，默认 3001） | **20 项断言全部 PASS + `SMOKE OK`**，exit 0（约 10s）；强制四平台 `mock`，完全离线 |
 | `pnpm e2e:sh`（Git Bash，3123 端口） | 同上，**20 项 PASS + `SMOKE OK`**（CI 使用此命令） |
 | 契约自检（后端起 mock 后） | `node packages/web/scripts/verify-contract.mjs http://127.0.0.1:3001 dev-token` → **46 PASS / 0 FAIL**（含 `modes` / `sentMock` / `mode`+`policy` / 邮箱账号明细 / `delivery` / WS 握手） |
 | `pnpm run doctor` | **PASS 8 / FAIL 1 / SKIP 0，退出码 1**：唯一 FAIL 为飞书 `21001`（租户策略，代码无解）；退出码 1 是「有 FAIL」的约定结果 |
 | `pnpm run doctor -- --platform=mail` | **PASS 4 / FAIL 0**（两个邮箱账号的 IMAP 登录基线 + SMTP 认证；地址已脱敏） |
 | CI（`.github/workflows/ci.yml`） | Ubuntu + Node 22 + pnpm 9.15.9：install → typecheck → server 测试 → web 测试 → web build → `e2e:sh 3121` |
+
+### 本轮健壮性加固验收（2026-11-04 实测）
+
+| 验收项 | 结果 |
+|---|---|
+| 空 / `{}` / 畸形 JSON webhook | 均 **400** JSON 错误说明，不入库、不占幂等键；正常三平台样例仍 200 / 企微 `success` |
+| 状态回流防倒退 | `synced` 后再推 `received` → 状态保持 `synced`（写入 `sync_ignored` 留痕），HTTP 仍 200 |
+| 端口占用 | 第二个实例启动 → 中文提示「端口 X 已被占用」+ 结束进程命令，退出码 1，无英文栈 |
+| CORS 白名单 | 配置 `CORS_ORIGINS` 后：名单内 Origin 200 + 回显、名单外 **403**、无 Origin 的 curl 放行 |
+| 鉴权边界 | `API_TOKEN=` 留空 → 回退 `dev-token` 并告警，**仍强制 Bearer**（无 token → 401）；`NODE_ENV=production` + 默认/空 token → 拒绝启动 |
+| 邮箱数据可信 | 嵌套 `multipart/mixed(alternative+attachment)` 正文递归提取（11 条 MIME 单测）；水位持久化 + 单轮多批追平 + UIDVALIDITY 变化自动重导；中文目录 modified UTF-7 有单测 |
+| doctor 退出码 | 修复 Windows + Node 24 下「报告 PASS 但退出码 0xC0000409」的强制退出竞态；实测 `--platform=dingtalk/wecom/mail` exit 0、`--platform=feishu` exit 1，稳定可脚本化 |
+| 首启引导 | 真实后端 + 空收件箱显示「3 步上手」（四平台通道 Tag/缺失变量/可复制命令）；Mock 模式不显示；后端 500 时不误报「已连上」；页脚按连接状态如实显示 |
 
 `doctor` 实测摘要（2026-11-04，真实凭据、只读探针，未发送任何业务消息）：
 
@@ -407,7 +441,26 @@ pnpm install
 - 异步回写：`reply` 返回 202 + `taskId`，后台完成后状态为 `synced`；失败重试耗尽后 `failed` + DLQ。
 - 回流：状态事件经 Webhook 按 `traceId` / `externalId` 均能把状态改为目标值并写入 `sync` 日志。
 - 本地全栈联调（2026-11-03，Mock）：后端 3001 + 前端 5173，页面显示「真实后端 · 已接入 LinkHub Server」；Webhook 灌入 4 条消息 → 收件箱计数 4、待办 2；页面内回复后状态走完 `received → processing → replied → sent → synced`，`/api/health` 中 `sent=1`，前端经 WebSocket 实时更新。
-- 截图见 `test.photos/`。
+- 截图见 `test.photos/`（2026-11-02 旧版界面，仅作历史记录）；当前版本的演示流程与界面说明见 [docs/demo-script.md](docs/demo-script.md)。
+
+## 设计文档承诺 vs 当前实现（验收前必读）
+
+设计文档（`documents/`）是"目标态"，本仓库是"当前态"。为避免评审/验收时按文档核对产生误会，这里如实列出差异：
+
+| 设计文档承诺 | 当前实现 | 说明 / 后续 |
+|---|---|---|
+| 四类数据源（飞书 / 钉钉 / 企微 / 邮箱）统一接入 | ✅ 已实现（邮箱为超出原设计的新增数据源） | 三平台 + 邮箱，均可 Mock/真实独立切换 |
+| 完整闭环（接收→展示→处理→回写→回流）+ traceId 回放 | ✅ 已实现并有单测/e2e 覆盖 | `pnpm e2e` 20 项断言 |
+| 独立部署：Docker Compose 拉起 postgres/redis/server/web | ❌ **尚未提供** Dockerfile / docker-compose | 当前用 pnpm 本地启动；内存存储，重启即清空；补容器化列入后续计划 |
+| PostgreSQL / Redis 持久化 | ❌ 未实现 | 仅有 `001_init.sql` 与仓储接口，实际始终内存 |
+| 真实大模型意图识别 / OCR | ❌ 未实现 | 规则 Mock（配置项已预留，降级策略已实现） |
+| 三平台真实收发 | 🟡 部分 | 钉钉 Stream 真实收发已跑通；飞书卡租户策略 `21001`；企微卡「企业可信 IP」`60020`（`pnpm run doctor` 可自证） |
+| 入口鉴权（Bearer + WS）| ✅ 已实现 | `/api/*` 与 `/ws` 同一 token；默认 `dev-token` 仅演示用，对外需改 |
+| CORS 白名单 | ✅ 已实现 | `CORS_ORIGINS` 白名单（不填保持 `*` 兼容本地；填了名单外 403 JSON） |
+| 日志脱敏 | ✅ 已实现 | 闭环日志不含正文；doctor 报告邮箱脱敏；启动日志与 `mock-send` 已不打印邮箱/正文 |
+| Webhook 健壮性 | ✅ 本轮加固 | 空 / 畸形事件 400 不入库；状态回流防倒退；畸形 JSON 返 JSON 错误 |
+
+> 风险全量清单（含每条的影响/修复状态/兜底方案）见 [docs/risk-register.md](docs/risk-register.md)；交付前务必走 [docs/delivery-checklist.md](docs/delivery-checklist.md)。
 
 ## 已知限制
 
@@ -415,15 +468,17 @@ pnpm install
 - **企业微信**：真实适配器与 19 条单测已就绪、`gettoken` 已通，但**卡在「企业可信 IP」**——当前出口 IP 不在白名单，真实发送端到端尚未验证（典型报错 60020）；同时缺回调 Token/EncodingAESKey，暂时收不到消息。`pnpm run doctor` 每次都会打印当前出口公网 IP：电脑重启一般不影响（公网出口在网关/运营商侧），但重拨路由器、换网络、开代理后可能变化，演示前先核对即可。
 - **钉钉**真实收消息依赖 Stream 长连接（本机可用）或公网 HTTP 回调；`DINGTALK_STREAM` 默认关闭，需要显式开启并在后台发布版本。
 - **邮箱**没有平台回调：真实模式下 `/api/webhook/mail` 一律验签失败，新信只能由本机轮询 ingest，默认 45s 一轮，不是实时。
-- 邮箱 IMAP 的 UID 水位存在内存里，进程重启会重新立基线，**重启间隙到达的邮件会被跳过**。
-- 邮箱 STARTTLS（143/587/25）已实现并有单测，但真实服务商 587/143 端到端尚未实测；部分服务商（如 Gmail 需应用专用密码、部分 Microsoft 365 租户关闭基础认证）可能拒绝账号密码/授权码登录，遇到时需改用应用专用密码或换服务商。
+- 邮箱 UID 水位已持久化到 `.mail-watermarks.json`（`MAIL_STATE_FILE` 可改路径），重启续传、不再跳过停机期间的邮件；单轮最多追 5 批（每批 20），大批量新邮件会跨轮继续，不会跳水位。**升级到本版本之前**已发生过的「目录被清空/重建」无法识别（旧状态没有 UIDVALIDITY）；升级后遇到 UIDVALIDITY 变化会按「宁可重复、不漏信」自动重导（若目录重建但保留原邮件，可能重复导入一次）。
+- 邮箱 STARTTLS（143/587/25）已实现并有单测，但真实服务商 587/143 端到端尚未实测；部分服务商（如 Gmail 需应用专用密码，部分 Microsoft 365 租户关闭基础认证）可能拒绝账号密码/授权码登录，遇到时需改用应用专用密码或换服务商。
+- 邮箱附件：正文会递归解析嵌套 multipart（不会因带附件而丢正文），附件名只出现在正文摘要/`attachments` 字段，不下载附件内容；中文 IMAP 目录已支持 modified UTF-7 编码（仅对配置的目录 SELECT，未实现目录自动发现）。
 - 真实大模型 / OCR 尚未实现：`LLM_*` / `OCR_*` 只是预留配置，实际始终走规则 Mock。
-- PostgreSQL / Redis 仅有 DDL 与仓储接口，实际始终走内存；多实例部署时限流、token 缓存、消息均不共享。
+- PostgreSQL / Redis 仅有 DDL 与仓储接口，实际始终走内存；多实例部署时限流、token 缓存、消息均不共享。**Docker Compose 尚未提供**（设计文档承诺项，见上表）。
 - 前端默认跑内存 Mock 数据；配 `VITE_API_BASE` / `VITE_API_TOKEN` 后即接本仓库后端。入口令牌是演示性质（`VITE_` 会进前端 bundle），生产需换成登录后签发的短期凭证。
-- Webhook 缺少 body 校验：空 payload 会被接收，`externalId` 退化为 `unknown`，之后的空 payload 全部按重复处理。
+- 默认监听所有网卡（`SERVER_HOST` 留空）+ 默认 `dev-token` 只适合本机演示；公共 Wi-Fi / 局域网演示时同网段可访问接口，**对外暴露前必须改 `API_TOKEN`、按需设 `CORS_ORIGINS` / `SERVER_HOST`**。
 - Mock 下不带签名头时按 `mock` 放行、`dev*` 前缀签名同样放行，仅适合本地演示；邮箱真实模式没有回调通道也是防伪造的有意设计。
-- 所有消息、闭环日志、DLQ 都在内存里，进程重启即清空。
+- 所有消息、闭环日志、DLQ 都在内存里，进程重启即清空（邮箱水位除外，已落盘）。
 - `scripts/e2e-server.log.err`：旧版本曾误提交，本版本已从 git 索引删除，并把 `*.log.err` / `*.log` 加入 `.gitignore`（日志类产物不再进仓库）。
+- `test.photos/` 是 2026-11-02 旧版界面截图，当前 UI 已改版（新增账号页模式标注、首启引导等），仅作历史证据保留。
 
 ## 常用命令
 
@@ -434,14 +489,15 @@ pnpm install
 | `pnpm dev` | 开发模式（tsx watch） |
 | `pnpm start` | 启动服务（:3001） |
 | `pnpm typecheck` | TypeScript 类型检查（shared + server + web） |
-| `pnpm test` | 服务端单元测试（136 条，含 doctor） |
-| `pnpm test:web` | 前端单元测试（48 条） |
+| `pnpm test` | 服务端单元测试（213 条，含 doctor / webhook / MIME / 水位） |
+| `pnpm test:web` | 前端单元测试（73 条） |
 | `pnpm run doctor` | 只读自检：环境 + 模式 + 逐平台探针 + 出口公网 IP + 中文修复建议；有 FAIL 时退出码 1 |
 | `pnpm run doctor -- --platform=feishu,mail` | 只检查指定平台 |
 | `pnpm run doctor -- --help` | 查看 doctor 全部参数与退出码 |
 | `pnpm --filter @unimsg/server run --silent doctor -- --json` | 机器可读 JSON（stdout 严格合法 JSON；`--silent` 避免 pnpm banner 混入） |
 | `pnpm e2e` | 一键端到端冒烟（Windows PowerShell） |
 | `pnpm e2e:sh` | 一键端到端冒烟（macOS / Linux / Git Bash） |
+| `pnpm run deliver` | 交付打包：`git archive` 生成 zip，自动排除 `.env*` / 日志 / 状态文件 / `node_modules`（工作区不干净会拒绝） |
 | `pnpm --filter @unimsg/web dev` | 前端开发模式（:5173，不配 `.env` 时为 Mock 数据） |
 | `pnpm --filter @unimsg/web build` | 前端生产构建 |
 | `node packages/web/scripts/verify-contract.mjs http://127.0.0.1:3001 dev-token` | 前后端契约自检（后端已启动；当前 **46 PASS / 0 FAIL**） |

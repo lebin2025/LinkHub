@@ -21,8 +21,9 @@ fi
 cd "$ROOT"
 echo "[e2e] 工作目录: $ROOT"
 echo "[e2e] 启动后端服务 (port=$PORT, 强制 mock 模式，与本地 .env 里的真实凭据隔离) ..."
-# 关键：e2e 必须完全离线可复现，不受 .env 中真实凭据影响
-SERVER_PORT="$PORT" \
+# 关键：e2e 必须完全离线可复现，不受 .env 中真实凭据影响；入口令牌也固定（避免用户改过 API_TOKEN 后 smoke 401）
+# smokes.py 从 LINKHUB_API_TOKEN 读取令牌，故单独 export 给同脚本后续的 python 进程export LINKHUB_API_TOKEN=dev-token
+SERVER_PORT="$PORT" API_TOKEN=dev-token \
 FEISHU_MODE=mock DINGTALK_MODE=mock WECOM_MODE=mock MAIL_MODE=mock \
 DINGTALK_STREAM=false MAIL_ENABLED=false \
 pnpm --filter @unimsg/server start > "$LOG" 2>&1 &

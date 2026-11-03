@@ -7,6 +7,7 @@
 用法：先启动服务（e2e.ps1 / e2e.sh 会自动以 mock 模式启动），再 python scripts/smoke.py [baseUrl]
 """
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -17,7 +18,12 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:3001"
-TOKEN = "dev-token"
+# 令牌优先级：显式参数 > 环境变量 > 演示默认值（便于用户改过 API_TOKEN 后手动跑冒烟）
+TOKEN = (
+    sys.argv[2]
+    if len(sys.argv) > 2
+    else os.environ.get("LINKHUB_API_TOKEN", "dev-token")
+)
 PLATFORMS = ["feishu", "dingtalk", "wecom", "mail"]
 
 

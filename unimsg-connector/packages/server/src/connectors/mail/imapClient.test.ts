@@ -7,7 +7,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import type { TLSSocket } from 'node:tls';
-import { ImapSession } from './imapClient';
+import { ImapSession, fetchNewMails, encodeMailboxName, mailboxArg } from './imapClient';
+import type { MailAccount } from '../../config';
 
 function fakeSocket(): EventEmitter & { destroyed: boolean; writes: string[]; write: (data: string) => boolean } {
   const ee = new EventEmitter() as any;
@@ -151,4 +152,155 @@ test('IMAP：STARTTLS 升级保留升级前已缓冲的字节，不重置读取�
   assert.equal(r.ok, true);
   assert.deepEqual(r.lines, ['* PRE-TLS-RESIDUE'], '升级前缓冲的应答行必须还在');
   s.close();
+});
+
+// ---------------------------------------------------------------------------
+// 非 ASCII 目录名：RFC 3501 modified UTF-7（只编码后拼 SELECT，不做 LIST 回读）
+// ---------------------------------------------------------------------------
+
+test('IMAP：modified UTF-7 编码命中 RFC 3501 示例向量', () => {
+  assert.equal(encodeMailboxName('~peter/mail/台北/日本語'), '~peter/mail/&U,BTFw-/&ZeVnLIqe-');
+});
+
+test('IMAP：modified UTF-7 只编码非 ASCII，ASCII 原样且 & 转义成 &-', () => {
+  assert.equal(encodeMailboxName('INBOX'), 'INBOX');
+  assert.equal(encodeMailboxName('Archive/2026'), 'Archive/2026');
+  assert.equal(encodeMailboxName('Sales & Marketing'), 'Sales &- Marketing');
+  assert.equal(encodeMailboxName('a&b'), 'a&-b');
+  assert.equal(encodeMailboxName('~peter/mail/台北'), '~peter/mail/&U,BTFw-');
+});
+
+test('IMAP：中文/日文目录编码结果（&...- + modified BASE64 的 , 分隔）', () => {
+  assert.equal(encodeMailboxName('已发送'), '&XfJT0ZAB-');
+  assert.equal(encodeMailboxName('收件箱'), '&ZTZO9nux-');
+  assert.equal(encodeMailboxName('写邮件'), '&UZmQrk72-');
+});
+
+test('IMAP：mailboxArg 保持 INBOX 不引号 / ASCII 加引号 / 非 ASCII 先编码再加引号', () => {
+  assert.equal(mailboxArg(''), 'INBOX');
+  assert.equal(mailboxArg('inbox'), 'INBOX');
+  assert.equal(mailboxArg(' INBOX '), 'INBOX');
+  assert.equal(mailboxArg('Archive'), '"Archive"');
+  assert.equal(mailboxArg('已发送'), '"&XfJT0ZAB-"');
+  assert.equal(mailboxArg('Sales & Marketing'), '"Sales &- Marketing"');
+  assert.equal(mailboxArg('~peter/mail/台北/日本語'), '"~peter/mail/&U,BTFw-/&ZeVnLIqe-"');
+});
+
+test('IMAP：mailboxArg 仍然拦掉会写坏命令结构的非法字符', () => {
+  assert.throws(() => mailboxArg('bad"name'), /非法邮箱目录名/);
+  assert.throws(() => mailboxArg("bad'name"), /非法邮箱目录名/);
+  assert.throws(() => mailboxArg('bad\nname'), /非法邮箱目录名/);
+  assert.throws(() => mailboxArg('bad\rname'), /非法邮箱目录名/);
+});
+
+// ---------------------------------------------------------------------------
+// fetchNewMails：用命令脚本假会话覆盖「SELECT 里带编码目录名」，绝不联网
+// ---------------------------------------------------------------------------
+
+interface FakeReply {
+  ok?: boolean;
+  lines?: string[];
+  literals?: Buffer[];
+  text?: string;
+}
+
+const ACCOUNT: MailAccount = {
+  key: 'qq', label: 'QQ邮箱', address: 'me@qq.com', authCode: 'auth-code', provider: 'qq',
+  imapHost: 'imap.qq.com', imapPort: 993, imapSecure: true,
+  smtpHost: 'smtp.qq.com', smtpPort: 465, smtpSecure: true,
+  folders: ['INBOX'],
+};
+
+/** 假 ImapSession：按命令前缀返回预设应答，同时记录发出去的命令（可用于断言 SELECT 参数） */
+function scriptedSession(handler: (args: string) => FakeReply): { session: ImapSession; commands: string[] } {
+  const commands: string[] = [];
+  const session = {
+    greeting: async () => '* OK IMAP4rev1 ready',
+    startTls: async () => undefined,
+    close: () => undefined,
+    command: async (args: string) => {
+      commands.push(args);
+      const r = handler(args) ?? {};
+      return { ok: r.ok ?? true, lines: r.lines ?? [], literals: r.literals ?? [], text: r.text ?? 'OK completed' };
+    },
+  };
+  return { session: session as unknown as ImapSession, commands };
+}
+
+test('IMAP：fetchNewMails 对中文目录发 SELECT 时带 modified UTF-7 编码并取回正文', async () => {
+  const raw = Buffer.from('From: a@b.com\r\nSubject: 一手资讯\r\n\r\n正文内容', 'utf8');
+  const { session, commands } = scriptedSession((args) => {
+    if (args.startsWith('SELECT ')) return { lines: ['* 1 EXISTS'] };
+    if (args === 'UID SEARCH ALL') return { lines: ['* SEARCH 3 7'] };
+    if (args.startsWith('UID FETCH 7 ')) return { literals: [raw] };
+    return {};
+  });
+
+  const r = await fetchNewMails(ACCOUNT, 5, 20, '已发送', { connect: async () => session });
+
+  assert.ok(commands.includes('SELECT "&XfJT0ZAB-"'), `SELECT 命令应带编码后的目录名，实际：${commands.join(' | ')}`);
+  assert.equal(r.mails.length, 1);
+  assert.equal(r.mails[0].uid, 7);
+  assert.equal(r.mails[0].raw.toString('utf8'), raw.toString('utf8'));
+  assert.equal(r.maxUid, 7);
+  assert.equal(r.greeting, '* OK IMAP4rev1 ready');
+  assert.ok(commands.includes('LOGOUT'));
+});
+
+test('IMAP：fetchNewMails 的 INBOX 仍不带引号；sinceUid=null 只立基线不取正文', async () => {
+  const { session, commands } = scriptedSession((args) => {
+    if (args === 'UID SEARCH ALL') return { lines: ['* SEARCH 2 5 9'] };
+    return {};
+  });
+
+  const r = await fetchNewMails(ACCOUNT, null, 20, 'INBOX', { connect: async () => session });
+
+  assert.ok(commands.includes('SELECT INBOX'), `INBOX 不应被引号包住，实际：${commands.join(' | ')}`);
+  assert.ok(!commands.some((c) => c.startsWith('UID FETCH')), '首轮立基线绝不能 FETCH 正文');
+  assert.deepEqual(r.mails, []);
+  assert.equal(r.maxUid, 9);
+});
+
+test('IMAP：个别取信失败以 failedUids 返回，不拖垮整批成功取到的信', async () => {
+  const raw = Buffer.from('From: a@b.com\r\n\r\nok', 'utf8');
+  const { session } = scriptedSession((args) => {
+    if (args === 'UID SEARCH ALL') return { lines: ['* SEARCH 3 7'] };
+    if (args.startsWith('UID FETCH 3 ')) return { ok: false, text: 'NO fetch failed' };
+    if (args.startsWith('UID FETCH 7 ')) return { literals: [raw] };
+    return {};
+  });
+
+  const r = await fetchNewMails(ACCOUNT, 1, 20, 'INBOX', { connect: async () => session });
+
+  assert.equal(r.mails.length, 1);
+  assert.equal(r.mails[0].uid, 7);
+  assert.deepEqual(r.failedUids, [3], '失败的 UID 要上报，轮询器据此把水位停在缺口前');
+});
+
+test('IMAP：解析 SELECT 应答里的 UIDVALIDITY（目录重建检测的唯一依据）', async () => {
+  const { session } = scriptedSession((args) => {
+    if (args.startsWith('SELECT ')) {
+      return { lines: ['* OK [UIDVALIDITY 456] UIDs valid', '* OK [UIDNEXT 9] Predicted next UID', '* 2 EXISTS'] };
+    }
+    if (args === 'UID SEARCH ALL') return { lines: ['* SEARCH 3 7'] };
+    return {};
+  });
+
+  const r = await fetchNewMails(ACCOUNT, null, 20, '已发送', { connect: async () => session });
+
+  assert.equal(r.uidValidity, 456);
+  assert.equal(r.maxUid, 7, '立基线仍然只取最大 UID');
+});
+
+test('IMAP：SELECT 未上报 UIDVALIDITY 时保持 undefined（老服务端/假实现兼容）', async () => {
+  const { session } = scriptedSession((args) => {
+    if (args.startsWith('SELECT ')) return { lines: ['* 0 EXISTS'] };
+    if (args === 'UID SEARCH ALL') return { lines: ['* SEARCH'] };
+    return {};
+  });
+
+  const r = await fetchNewMails(ACCOUNT, null, 20, 'INBOX', { connect: async () => session });
+
+  assert.equal(r.uidValidity, undefined);
+  assert.equal(r.maxUid, 0);
 });

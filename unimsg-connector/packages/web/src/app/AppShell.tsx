@@ -16,11 +16,17 @@ import { useAppState } from '../hooks/useAppState';
 import { store } from '../store';
 import { Platform } from '../types';
 import { ConnectionDot } from '../components/ConnectionDot';
+import { footerState } from '../utils/footerState';
+
+/** 错误排查提示：后端未启动 / 端口不一致 / token 不一致是最常见的三类首启问题 */
+const ERROR_HINTS =
+  '排查：后端是否已启动（pnpm --filter @unimsg/server start）；VITE_API_BASE 是否指向正确端口；token 是否与后端 API_TOKEN 一致';
 
 export function AppShell() {
   const state = useAppState();
   const navigate = useNavigate();
   const { message } = AntApp.useApp();
+  const footer = footerState(state.demoMode, state.connection, state.error);
 
   const counts = useMemo(() => {
     const inbox = state.messages.filter((m) => m.status !== 'synced' && m.status !== 'failed').length;
@@ -131,10 +137,8 @@ export function AppShell() {
           </nav>
 
           <div className="side-foot">
-            <div className="side-foot__badge">{state.demoMode ? 'Mock 数据' : '真实后端'}</div>
-            <div className="side-foot__text">
-              {state.demoMode ? '前端演示模式 · 未接后端' : '已接入 LinkHub Server'}
-            </div>
+            <div className={`side-foot__badge side-foot__badge--${footer.tone}`}>{footer.badge}</div>
+            <div className="side-foot__text">{footer.text}</div>
           </div>
         </aside>
 
@@ -146,7 +150,12 @@ export function AppShell() {
               showIcon
               closable
               message="数据加载异常"
-              description={state.error}
+              description={
+                <div className="alert-detail">
+                  <div>{state.error}</div>
+                  <div className="alert-detail__hint">{ERROR_HINTS}</div>
+                </div>
+              }
               onClose={() => store.dismissError()}
             />
           )}

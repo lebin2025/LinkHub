@@ -61,6 +61,8 @@ export interface EnvInfo {
   mailEnabled: boolean;
   /** 是否运行在 node:test 子进程（此时所有平台强制 Mock） */
   underTest: boolean;
+  /** 疑似拼写错误/未定义的本项目环境变量（doctor 主动提示，避免"静默回退 Mock"） */
+  suspicious?: { name: string; suggestion?: string; reason: string }[];
 }
 
 /** 报告里的邮箱账号摘要（地址会在渲染时脱敏） */
@@ -230,6 +232,13 @@ function renderEnvironmentLines(env: EnvInfo): string[] {
     lines.push(`    ${f.exists ? '✔' : '·'} ${f.path}${f.exists ? '' : '（不存在）'}`);
   }
   for (const note of env.notes) lines.push(`  ⚠ ${note}`);
+  if (env.suspicious && env.suspicious.length > 0) {
+    lines.push('  疑似写错/未生效的环境变量（不会被程序读取）：');
+    for (const s of env.suspicious) {
+      lines.push(`    ⚠ ${s.name}${s.suggestion ? ` → 是否想写 ${s.suggestion}？` : ''}`);
+      lines.push(`      ${s.reason}`);
+    }
+  }
 
   lines.push(
     `  邮箱账号：${env.mailAccountCount} 个${env.mailAccountCount > 0 ? (env.mailEnabled ? '（IMAP 轮询开启）' : '（MAIL_ENABLED=false，轮询关闭，仅能发送）') : ''}`,

@@ -39,6 +39,9 @@ $env:WECOM_MODE = "mock"
 $env:MAIL_MODE = "mock"
 $env:DINGTALK_STREAM = "false"
 $env:MAIL_ENABLED = "false"
+# 入口令牌也固定，避免用户改了 .env 的 API_TOKEN 后 smoke.py 401
+$env:API_TOKEN = "dev-token"
+$env:LINKHUB_API_TOKEN = "dev-token"
 $proc = Start-Process -FilePath "cmd.exe" `
   -ArgumentList "/c", "pnpm --filter @unimsg/server start" `
   -WorkingDirectory $root -PassThru -WindowStyle Hidden `

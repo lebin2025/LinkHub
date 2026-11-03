@@ -70,6 +70,14 @@ const runtime = buildPlatformRuntime({
 // 模式相关的全局警告（旧 MOCK 变量、非法 *_MODE 值等），启动日志与 doctor 会打印
 const modeWarnings = resolveModePolicies(process.env, { underTest }).warnings;
 
+// 入口令牌：空串不能当"未配置"处理——那会让鉴权中间件拿到空 token，
+// 历史上可能被误判成"跳过鉴权"。这里统一归一化：空 → dev-token + 启动警告。
+const rawApiToken = (process.env.API_TOKEN ?? '').trim();
+const apiToken = rawApiToken || 'dev-token';
+if (process.env.API_TOKEN !== undefined && !rawApiToken) {
+  modeWarnings.push('API_TOKEN 被显式设置为空，已回退 dev-token；默认令牌仅适合本地演示，对外暴露前务必设置强令牌');
+}
+
 export const config = {
   port: Number(process.env.SERVER_PORT ?? 3001),
 
@@ -82,7 +90,7 @@ export const config = {
   underTest,
 
   // 入口鉴权令牌（服务端私有；前端登录后携带 Bearer）。未配置时用 dev-token 便于本地演示。
-  apiToken: process.env.API_TOKEN ?? 'dev-token',
+  apiToken,
 
   /** 钉钉 Stream 长连接（免公网回调），开启后额外订阅机器人消息 */
   dingtalkStream: platforms.dingtalk.stream,

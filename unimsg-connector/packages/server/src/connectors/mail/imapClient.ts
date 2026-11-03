@@ -244,25 +244,93 @@ function quote(s: string): string {
   return `"${s.replace(/([\\"])/g, '\\$1')}"`;
 }
 
-/** 目录名要拼进 IMAP 命令，先挡掉引号/换行，避免把命令结构写坏 */
-function mailboxArg(folder: string): string {
+/** modified BASE64 字母表（RFC 3501 用 ',' 替代标准 base64 的 '/'） */
+const MODIFIED_B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+,';
+
+/** 把一段非 ASCII 字符按 UTF-16BE + modified BASE64 包进 &...- */
+function encodeModifiedUtf7Run(run: string): string {
+  if (!run) return '';
+  const le = Buffer.from(run, 'utf16le');
+  const be = Buffer.alloc(le.length);
+  for (let i = 0; i + 1 < le.length; i += 2) {
+    be[i] = le[i + 1];
+    be[i + 1] = le[i];
+  }
+  let out = '';
+  for (let i = 0; i < be.length; i += 3) {
+    const b0 = be[i];
+    const b1 = i + 1 < be.length ? be[i + 1] : 0;
+    const b2 = i + 2 < be.length ? be[i + 2] : 0;
+    out += MODIFIED_B64[b0 >> 2];
+    out += MODIFIED_B64[((b0 & 0x03) << 4) | (b1 >> 4)];
+    if (i + 1 < be.length) out += MODIFIED_B64[((b1 & 0x0f) << 2) | (b2 >> 6)];
+    if (i + 2 < be.length) out += MODIFIED_B64[b2 & 0x3f];
+  }
+  return `&${out}-`;
+}
+
+/**
+ * RFC 3501 modified UTF-7 编码（IMAP 目录名 / mailbox name）。
+ *
+ * 只用于「把配置里的 UTF-8 目录名写进 SELECT 命令」；LIST 回读解码未实现。
+ *  - 可打印 ASCII（0x20-0x7e，除 &）原样输出；
+ *  - ASCII 的 & 编码成 &-（否则会被当成 &...- 序列的开头）；
+ *  - 其余字符（中文/日文/emoji…）连续段按 UTF-16BE + modified BASE64 编码。
+ *
+ * 例：`~peter/mail/台北/日本語` → `~peter/mail/&U,BTFw-/&ZeVnLIqe-`
+ */
+export function encodeMailboxName(folder: string): string {
+  let out = '';
+  let pending = '';
+  const flush = () => {
+    if (pending) {
+      out += encodeModifiedUtf7Run(pending);
+      pending = '';
+    }
+  };
+  for (const ch of folder) {
+    const cp = ch.codePointAt(0) ?? 0;
+    if (ch === '&') {
+      flush();
+      out += '&-';
+    } else if (cp >= 0x20 && cp <= 0x7e) {
+      flush();
+      out += ch;
+    } else {
+      pending += ch;
+    }
+  }
+  flush();
+  return out;
+}
+
+/** 目录名要拼进 IMAP 命令：非 ASCII 先转 modified UTF-7，再挡掉引号/换行避免写坏命令结构 */
+export function mailboxArg(folder: string): string {
   const f = folder.trim();
   if (!f) return 'INBOX';
   if (/["'\r\n]/.test(f)) throw new Error(`非法邮箱目录名：${f}`);
-  return f.toUpperCase() === 'INBOX' ? 'INBOX' : quote(f);
+  return f.toUpperCase() === 'INBOX' ? 'INBOX' : quote(encodeMailboxName(f));
+}
+
+/** 单测注入点：默认走 ImapSession.connect，生产代码不传 */
+export interface FetchNewMailsOptions {
+  connect?: (account: MailAccount) => Promise<ImapSession>;
 }
 
 /**
  * 拉取指定目录里 UID 大于 sinceUid 的邮件（升序，最多 limit 封）。
  * sinceUid 传 null = 只问最大 UID 立基线，不取任何正文。
+ * 个别邮件取信失败不会整轮失败，而是放进 failedUids，让调用方把水位停在缺口前重试。
+ * uidValidity 来自 SELECT 的 `* OK [UIDVALIDITY xxx]`：目录被清空/重建时它会变，调用方据此重置水位。
  */
 export async function fetchNewMails(
   account: MailAccount,
   sinceUid: number | null,
   limit = 20,
   folder = 'INBOX',
-): Promise<{ mails: ImapMail[]; maxUid: number; greeting: string }> {
-  const s = await ImapSession.connect(account);
+  opts: FetchNewMailsOptions = {},
+): Promise<{ mails: ImapMail[]; maxUid: number; greeting: string; failedUids?: number[]; uidValidity?: number }> {
+  const s = await (opts.connect ? opts.connect(account) : ImapSession.connect(account));
   try {
     const greeting = await s.greeting();
 
@@ -280,6 +348,9 @@ export async function fetchNewMails(
 
     const select = await s.command(`SELECT ${mailboxArg(folder)}`);
     if (!select.ok) throw new Error(`IMAP 选择目录 ${folder} 失败：${select.text.trim()}`);
+    // SELECT 应答里的 UIDVALIDITY：目录被清空/重建后会变化，是 UID 水位能否继续沿用的唯一依据
+    const uidValidityMatch = select.lines.join('\n').match(/\[UIDVALIDITY\s+(\d+)\]/i);
+    const uidValidity = uidValidityMatch ? Number(uidValidityMatch[1]) : undefined;
 
     const search = await s.command('UID SEARCH ALL');
     if (!search.ok) throw new Error(`IMAP 检索失败：${search.text.trim()}`);
@@ -288,15 +359,30 @@ export async function fetchNewMails(
 
     const fresh = sinceUid === null ? [] : uids.filter((u) => u > sinceUid).slice(0, limit);
     const mails: ImapMail[] = [];
+    const failedUids: number[] = [];
     for (const uid of fresh) {
       const r = await s.command(`UID FETCH ${uid} BODY.PEEK[]`);
       const raw = r.literals[r.literals.length - 1];
       if (r.ok && raw) mails.push({ uid, raw });
+      else failedUids.push(uid);
     }
 
     const maxUid = uids.length > 0 ? uids[uids.length - 1] : (sinceUid ?? 0);
     await s.command('LOGOUT');
-    return { mails, maxUid: Math.max(maxUid, sinceUid ?? 0), greeting };
+    const result: {
+      mails: ImapMail[];
+      maxUid: number;
+      greeting: string;
+      failedUids?: number[];
+      uidValidity?: number;
+    } = {
+      mails,
+      maxUid: Math.max(maxUid, sinceUid ?? 0),
+      greeting,
+    };
+    if (failedUids.length > 0) result.failedUids = failedUids;
+    if (uidValidity !== undefined) result.uidValidity = uidValidity;
+    return result;
   } finally {
     s.close();
   }

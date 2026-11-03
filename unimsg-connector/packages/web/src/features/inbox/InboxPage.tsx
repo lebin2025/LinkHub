@@ -8,6 +8,7 @@ import { filterMessages } from '../../store/appStore';
 import { MsgStatus } from '../../types';
 import { STATUS_META, TYPE_LABEL } from '../../utils/format';
 import { EmptyState } from '../../components/EmptyState';
+import { FirstRunGuide, isEmptyFirstRun } from '../../components/FirstRunGuide';
 import { MessageCard } from './MessageCard';
 import { DetailPanel } from './DetailPanel';
 
@@ -42,8 +43,27 @@ export function InboxPage() {
     state.filters.onlyReview ||
     Boolean(state.filters.keyword);
 
+  // 首启空收件箱：顶部展示 3 步上手；此处的空态文案也不能再说「没有匹配的消息」
+  const isEmptyInbox = isEmptyFirstRun({
+    demoMode: state.demoMode,
+    messageCount: state.messages.length,
+    received: state.health?.received ?? 0,
+  });
+
   return (
-    <div className={`inbox${traceId ? ' inbox--detail' : ''}`}>
+    <div className="inbox-page">
+      <FirstRunGuide
+        demoMode={state.demoMode}
+        messageCount={state.messages.length}
+        received={state.health?.received ?? 0}
+        accounts={state.accounts}
+        connection={state.connection}
+        apiBase={import.meta.env.VITE_API_BASE}
+        loading={state.loading}
+        error={state.error}
+        onOpenAccounts={() => navigate('/accounts')}
+      />
+      <div className={`inbox${traceId ? ' inbox--detail' : ''}`}>
       <section className="list-pane" aria-label="消息列表">
         <div className="list-header">
           <div className="list-header__title">
@@ -91,21 +111,33 @@ export function InboxPage() {
               ))}
             </div>
           ) : visible.length === 0 ? (
-            <EmptyState
-              title="没有匹配的消息"
-              description="换一个平台或状态，或者清空搜索条件。"
-              action={
-                <Button
-                  size="small"
-                  onClick={() => {
-                    store.resetFilters();
-                    navigate('/inbox');
-                  }}
-                >
-                  清空筛选
-                </Button>
-              }
-            />
+            state.error ? (
+              <EmptyState
+                title="消息加载失败"
+                description="按上方错误提示排查后端（是否启动、端口与 token 是否一致）后刷新页面重试。"
+              />
+            ) : isEmptyInbox ? (
+              <EmptyState
+                title="还没有收到消息"
+                description="打开「平台账号」核对接入状态，或接入一个真实平台后等待第一条消息。"
+              />
+            ) : (
+              <EmptyState
+                title="没有匹配的消息"
+                description="换一个平台或状态，或者清空搜索条件。"
+                action={
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      store.resetFilters();
+                      navigate('/inbox');
+                    }}
+                  >
+                    清空筛选
+                  </Button>
+                }
+              />
+            )
           ) : (
             visible.map((message) => (
               <MessageCard
@@ -139,6 +171,7 @@ export function InboxPage() {
           <EmptyState title="选择一条消息" description="从左侧列表中点击任意消息，查看详情并直接回复。" />
         )}
       </section>
+      </div>
     </div>
   );
 }

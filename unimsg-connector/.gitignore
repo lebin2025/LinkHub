@@ -5,3 +5,6 @@ dist/
 *.log
 *.log.err
 .DS_Store
+# 邮箱 UID 水位状态文件（运行期原子写，重启续传用，不进仓库）
+.mail-watermarks.json
+*.tmp

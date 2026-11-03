@@ -238,5 +238,11 @@ main()
   })
   .finally(() => {
     console.log(`\n契约自检：${passed} PASS / ${failed} FAIL`);
-    process.exit(failed > 0 ? 1 : 0);
+    // 不用 process.exit()：Windows + Node 24 下若 fetch/WebSocket 句柄还在关闭中，
+    // 强制退出会触发 libuv 断言（0xC0000409，退出码 -1073740791），让 CI/脚本误判。
+    // 设置 exitCode 让进程自然收尾；10s 兜底防挂死。
+    const code = failed > 0 ? 1 : 0;
+    process.exitCode = code;
+    const watchdog = setTimeout(() => process.exit(code), 10_000);
+    watchdog.unref?.();
   });

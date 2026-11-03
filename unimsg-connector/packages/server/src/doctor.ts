@@ -18,6 +18,7 @@ import { Platform } from '@unimsg/shared';
 import { config } from './config';
 import { mailAccountSummary } from './config/runtime';
 import { runProbes, PROBE_TIMEOUT_MS, type ProbeInput } from './doctor/probes';
+import { findSuspiciousEnvVars } from './doctor/env-check';
 import {
   computeExitCode,
   renderJsonReport,
@@ -126,6 +127,12 @@ function collectEnvInfo(): EnvInfo {
     notes.push(`邮箱配置有 ${mailErrors} 个 error 级问题，详见下方「邮箱」平台段；未解析成功的账号不会被探测。`);
   }
 
+  // 拼写错误的环境变量不会报错、只会静默回退 Mock——doctor 主动提示，降低新用户学习成本
+  const suspicious = findSuspiciousEnvVars(process.env);
+  if (suspicious.length > 0) {
+    notes.push(`检测到 ${suspicious.length} 个疑似写错/未生效的环境变量（见下方列表）：它们不会被读取，对应平台会静默回退 Mock。`);
+  }
+
   const major = Number(process.versions.node.split('.')[0]);
   return {
     nodeVersion: process.version,
@@ -137,6 +144,7 @@ function collectEnvInfo(): EnvInfo {
     mailAccountCount: config.mail.accounts.length,
     mailEnabled: config.mail.enabled,
     underTest: config.underTest,
+    suspicious,
   };
 }
 
@@ -248,12 +256,26 @@ async function main(): Promise<number> {
   return computeExitCode(report);
 }
 
+/**
+ * 退出方式：设置 process.exitCode 让事件循环自然收尾，**不要直接 process.exit()**。
+ * 原因：探针用 Node 内置 fetch（undici），Windows + Node 24 下如果在 keep-alive socket
+ * 关闭过程中强行 process.exit()，会触发 libuv 断言
+ * `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING) ... async.c`，
+ * 进程被 0xC0000409 终止——报告明明 PASS，退出码却是 -1073740791，脚本/CI 会误判。
+ * 自然退出通常只多 2–3 秒（等 undici 空闲连接到期）；再加一个 10 秒兜底 watchdog 防挂死。
+ */
+function finish(code: number): void {
+  process.exitCode = code;
+  const watchdog = setTimeout(() => process.exit(code), 10_000);
+  watchdog.unref?.();
+}
+
 main()
   .then((code) => {
-    process.exit(code);
+    finish(code);
   })
   .catch((error: unknown) => {
     const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
     process.stderr.write(`[doctor] 自检执行异常：${message}\n`);
-    process.exit(3);
+    finish(3);
   });

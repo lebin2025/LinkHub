@@ -188,6 +188,28 @@ test('渲染：环境段的 .env 缺失与 MOCK 遗留警告会显示', () => {
   assert.ok(text.includes('MOCK 已废弃'));
 });
 
+test('渲染：疑似写错的环境变量会显示建议（避免静默回退 Mock）', () => {
+  const text = renderTextReport(
+    report({
+      env: env({
+        suspicious: [
+          {
+            name: 'FEISHU_APPID',
+            suggestion: 'FEISHU_APP_ID',
+            reason: '未在文档中定义，疑似拼写错误——它不会被读取，对应平台会静默回退 Mock',
+          },
+        ],
+      }),
+    }),
+  );
+  assert.ok(text.includes('疑似写错/未生效的环境变量'));
+  assert.ok(text.includes('FEISHU_APPID → 是否想写 FEISHU_APP_ID？'));
+  assert.ok(text.includes('静默回退 Mock'));
+
+  const parsed = JSON.parse(renderJsonReport(report({ env: env({ suspicious: [{ name: 'X', reason: 'r' }] }) }))) as any;
+  assert.equal(parsed.environment.suspicious[0].name, 'X');
+});
+
 test('渲染：全部 SKIP 时结论为通过（Mock 演示是合法状态）', () => {
   const text = renderTextReport(
     report({

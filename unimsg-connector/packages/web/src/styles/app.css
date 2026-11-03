@@ -301,11 +301,35 @@ button {
   font-weight: 600;
 }
 
+/* 页脚状态色调：demo=橙（默认）/ ok=绿 / pending=橙 / error=红 */
+.side-foot__badge--ok {
+  background: #f6ffed;
+  color: #389e0d;
+}
+
+.side-foot__badge--pending {
+  background: #fff7e6;
+  color: #d46b08;
+}
+
+.side-foot__badge--error {
+  background: #fff1f0;
+  color: #cf1322;
+}
+
 .side-foot__text {
   margin-top: 6px;
   font-size: 11px;
   color: var(--text-3);
   line-height: 1.5;
+}
+
+/* 数据加载错误 Alert：错误信息 + 排查清单两行 */
+.alert-detail__hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.6;
 }
 
 .app-main {
@@ -316,6 +340,23 @@ button {
 }
 
 /* ---------------- Inbox ---------------- */
+
+/* 首启引导（仅真实后端 + 0 消息时出现）与三栏收件箱纵向排列 */
+.inbox-page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.inbox-page > .first-run-guide {
+  flex: none;
+}
+
+.inbox-page > .inbox {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
 
 .inbox {
   height: 100%;
@@ -990,6 +1031,179 @@ button {
   max-width: 320px;
 }
 
+/* ---------------- 首启引导（空收件箱 3 步上手） ---------------- */
+
+.first-run-guide {
+  margin: 12px 20px 0;
+}
+
+.first-run-guide__card .ant-card-head {
+  min-height: 40px;
+  padding: 0 16px;
+}
+
+.first-run-guide__card .ant-card-head-title {
+  padding: 8px 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.first-run-guide__card .ant-card-body {
+  padding: 12px 16px;
+}
+
+.first-run-guide__card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.first-run-guide__lead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.first-run-guide__lead-strong {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.first-run-guide__lead-desc {
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.first-run-guide__connection {
+  margin-inline-end: 0;
+}
+
+.first-run-guide__modes {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.first-run-guide__modes-label {
+  color: var(--text-3);
+}
+
+.first-run-guide__mode-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.first-run-guide__mode-item .ant-tag {
+  margin-inline-end: 0;
+}
+
+.first-run-guide__missing {
+  font-size: 11.5px;
+  color: #d46b08;
+}
+
+.first-run-guide__steps {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.first-run-guide__step {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.first-run-guide__num {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.first-run-guide__step-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.first-run-guide__step-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.first-run-guide__step-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.first-run-guide__step-desc {
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.6;
+}
+
+.first-run-guide__cmd.ant-typography {
+  font-size: 12px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.first-run-guide__link.ant-btn {
+  padding: 0;
+  height: auto;
+  font-size: 12.5px;
+}
+
+.first-run-guide__start {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.first-run-guide__start-label {
+  color: var(--text-3);
+}
+
+.first-run-guide__footer {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  flex-wrap: wrap;
+}
+
+.first-run-guide__foot-hint {
+  font-size: 12px;
+  color: var(--text-3);
+}
+
 .detail-loading {
   padding: 24px;
 }
@@ -1465,6 +1679,10 @@ button {
 
   .header-actions .ant-segmented {
     display: none;
+  }
+
+  .first-run-guide {
+    margin: 8px 12px 0;
   }
 
   .inbox {

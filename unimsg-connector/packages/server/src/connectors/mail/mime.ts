@@ -78,11 +78,20 @@ export function parseMail(raw: Buffer | string): RawMail {
   return { headers, body };
 }
 
+function escapeRegExp(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function parseParam(header: string | undefined, key: string): string {
   if (!header) return '';
-  const m = header.match(new RegExp(`${key}=("[^"]*"|[^;\\s]*)`, 'i'));
+  const m = header.match(new RegExp(`${escapeRegExp(key)}=("[^"]*"|[^;\\s]*)`, 'i'));
   if (!m) return '';
   return m[1].replace(/^"|"$/g, '');
+}
+
+/** Content-Disposition 的类型（attachment / inline）：只看首个分号前的 token，避免 filename 里带 attachment 被误判 */
+function dispositionType(header: string | undefined): string {
+  return (header ?? '').split(';')[0].trim().toLowerCase();
 }
 
 /** base64 / quoted-printable / 7bit-8bit → 文本 */
@@ -100,32 +109,134 @@ function transferDecode(body: Buffer, encoding: string, charset: string): string
   return decodeBytes(body, charset);
 }
 
-/** 邮件正文：优先 text/plain，退化到 text/html 去标签 */
-export function extractText(mail: RawMail): string {
-  const ct = mail.headers['content-type'] ?? '';
-  const charset = parseParam(ct, 'charset') || 'utf-8';
+/** 递归深度上限：防御恶意构造的超深嵌套 multipart */
+const MAX_MIME_DEPTH = 20;
+
+interface BodySearch {
+  plain: string;
+  html: string;
+  attachments: string[];
+}
+
+/** 附件名：优先 Content-Disposition 的 filename，退化到 Content-Type 的 name */
+function attachmentName(part: RawMail): string {
+  const cd = part.headers['content-disposition'] ?? '';
+  const ct = part.headers['content-type'] ?? '';
+  const raw = parseParam(cd, 'filename*')
+    || parseParam(cd, 'filename')
+    || parseParam(ct, 'name*')
+    || parseParam(ct, 'name');
+  return raw ? decodeParamValue(raw) : '';
+}
+
+/** 还原 RFC 2231 的 filename*=charset'lang'%XX 与 encoded-word 文件名 */
+function decodeParamValue(raw: string): string {
+  const rfc2231 = raw.match(/^([^']*)'[^']*'(.*)$/);
+  if (rfc2231) {
+    const bytes = Buffer.from(
+      rfc2231[2].replace(/%([0-9A-Fa-f]{2})/g, (_m, h: string) => String.fromCharCode(parseInt(h, 16))),
+      'binary',
+    );
+    return decodeBytes(bytes, rfc2231[1] || 'utf-8').trim();
+  }
+  return decodeWords(raw).trim();
+}
+
+/**
+ * 按 MIME boundary 切分 multipart 体：
+ *  - 只认「行首的 --boundary（可跟 -- 结束标记）+ 行尾」，天然跳过 preamble/epilogue；
+ *  - 用「行尾匹配」而不是裸字符串 split，避免外层 boundary 前缀撞上内层 boundary
+ *    （如 outer=abc、inner=abcd 时 `--abcd` 不能被外层切断）。
+ */
+function splitMultipart(body: Buffer, boundary: string): Buffer[] {
+  const text = body.toString('binary');
+  const delimiter = new RegExp(`--${escapeRegExp(boundary)}(--)?[ \\t]*(?:\\r?\\n|$)`, 'g');
+  const parts: Buffer[] = [];
+  let start = -1;
+  for (let m = delimiter.exec(text); m !== null; m = delimiter.exec(text)) {
+    if (start >= 0) {
+      // 上一个 boundary 行之后、本 boundary 行之前即 part 原文；去掉紧贴 boundary 的那个换行
+      const chunk = text.slice(start, m.index).replace(/\r?\n$/, '');
+      if (chunk.length > 0) parts.push(Buffer.from(chunk, 'binary'));
+    }
+    if (m[1]) break; // 结束 boundary，后面是 epilogue，直接丢弃
+    start = m.index + m[0].length;
+  }
+  return parts;
+}
+
+/**
+ * 深度优先遍历 MIME 树，把正文/附件名收集到 found：
+ *  - `Content-Disposition: attachment` 的 part 整段跳过（附件里也可能嵌 multipart，绝不能当正文）；
+ *  - 正文全局优先级 text/plain > text/html（html 去标签兜底），任一层找到非空正文即采用；
+ *  - 只有确认完全没有正文时，附件名才用于 `[附件] a, b` 摘要。
+ */
+function walkPart(part: RawMail, found: BodySearch, depth: number): void {
+  if (depth > MAX_MIME_DEPTH) return;
+  const ct = part.headers['content-type'] ?? '';
+  const encoding = part.headers['content-transfer-encoding'] ?? '';
+
+  if (dispositionType(part.headers['content-disposition']) === 'attachment') {
+    found.attachments.push(attachmentName(part) || '未命名');
+    return;
+  }
 
   if (/multipart\//i.test(ct)) {
     const boundary = parseParam(ct, 'boundary');
-    if (boundary) {
-      const chunks = mail.body.toString('binary').split(`--${boundary}`);
-      const parts = chunks
-        .filter((c) => c.length > 0 && !c.startsWith('--'))
-        .map((c) => parseMail(Buffer.from(c.replace(/^\r?\n/, '').replace(/\r?\n$/, ''), 'binary')));
-      const plain = parts.find((p) => /text\/plain/i.test(p.headers['content-type'] ?? ''));
-      const html = parts.find((p) => /text\/html/i.test(p.headers['content-type'] ?? ''));
-      const target = plain ?? html;
-      if (target) {
-        const inner = extractText({ headers: target.headers, body: target.body });
-        if (inner.trim()) return /text\/html/i.test(target.headers['content-type'] ?? '') ? htmlToText(inner) : inner;
+    if (!boundary) {
+      // 畸形 multipart（缺 boundary）：沿用旧行为把整段当文本兜底，总比正文静默丢失好
+      if (!found.plain) {
+        const fallback = transferDecode(part.body, encoding, parseParam(ct, 'charset') || 'utf-8');
+        if (fallback.trim()) found.plain = fallback;
       }
-      // 多段附件邮件：正文为空也照实返回
-      const attached = parts.find((p) => /attachment/i.test(p.headers['content-disposition'] ?? ''));
-      return attached ? `[附件] ${parseParam(attached.headers['content-disposition'] ?? '', 'filename') || '未命名'}` : '';
+      return;
     }
+    for (const child of splitMultipart(part.body, boundary)) walkPart(parseMail(child), found, depth + 1);
+    return;
   }
-  const text = transferDecode(mail.body, mail.headers['content-transfer-encoding'] ?? '', charset);
-  return /text\/html/i.test(ct) ? htmlToText(text) : text;
+
+  const charset = parseParam(ct, 'charset') || 'utf-8';
+  // 无 Content-Type 的 part 按 RFC 2045 默认 text/plain
+  if (!ct || /text\/plain/i.test(ct)) {
+    if (!found.plain) {
+      const text = transferDecode(part.body, encoding, charset);
+      if (text.trim()) found.plain = text;
+    }
+    return;
+  }
+  if (/text\/html/i.test(ct)) {
+    if (!found.html) {
+      const html = transferDecode(part.body, encoding, charset);
+      if (html.trim()) found.html = htmlToText(html);
+    }
+    return;
+  }
+  // 非文本 part：有文件名（name=）视为附件；无名字的多是内联图片等资源，忽略
+  const name = attachmentName(part);
+  if (name) {
+    found.attachments.push(name);
+    return;
+  }
+  // 顶层非文本（历史上直接按文本兜底）：保持兼容，别让老报文突然变空
+  if (depth === 0 && !found.plain) {
+    const fallback = transferDecode(part.body, encoding, charset);
+    if (fallback.trim()) found.plain = fallback;
+  }
+}
+
+/** 邮件正文 + 附件名：递归解析整棵 MIME 树（multipart/mixed 里嵌 multipart/alternative 也能出正文） */
+export function extractMail(mail: RawMail): { text: string; attachments: string[] } {
+  const found: BodySearch = { plain: '', html: '', attachments: [] };
+  walkPart(mail, found, 0);
+  const text = found.plain.trim() ? found.plain : found.html;
+  if (text.trim()) return { text, attachments: found.attachments };
+  // 确认没有任何正文，才退化成附件名摘要
+  return { text: found.attachments.length > 0 ? `[附件] ${found.attachments.join(', ')}` : '', attachments: found.attachments };
+}
+
+/** 邮件正文：优先 text/plain，退化到 text/html 去标签 */
+export function extractText(mail: RawMail): string {
+  return extractMail(mail).text;
 }
 
 function htmlToText(html: string): string {
@@ -163,20 +274,25 @@ export interface ParsedMessage {
   from: { name: string; address: string };
   to: string;
   text: string;
+  /** 附件文件名（只在确实解析到附件时出现；正文摘要仍走 text，不破坏原有字段语义） */
+  attachments?: string[];
 }
 
 /** 原始报文 → 结构化邮件（连接器 receive 的输入） */
 export function readMessage(raw: Buffer | string): ParsedMessage {
   const mail = parseMail(raw);
-  return {
+  const extracted = extractMail(mail);
+  const parsed: ParsedMessage = {
     messageId: (mail.headers['message-id'] ?? '').replace(/^<|>$/g, ''),
     inReplyTo: (mail.headers['in-reply-to'] ?? '').replace(/^<|>$/g, ''),
     subject: decodeWords(mail.headers['subject'] ?? '').trim(),
     date: mail.headers['date'] ?? '',
     from: parseAddress(mail.headers['from']),
     to: mail.headers['to'] ?? '',
-    text: extractText(mail).replace(/\r\n/g, '\n').trim(),
+    text: extracted.text.replace(/\r\n/g, '\n').trim(),
   };
+  if (extracted.attachments.length > 0) parsed.attachments = extracted.attachments;
+  return parsed;
 }
 
 /** 回写报文：主题自动加 Re:，头部带 In-Reply-To 以便原会话串联 */
