@@ -12,6 +12,7 @@
   "dependencies": {
     "@unimsg/shared": "workspace:*",
     "cors": "^2.8.5",
+    "dingtalk-stream": "2.1.6-beta.1",
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
     "tsx": "^4.19.0",

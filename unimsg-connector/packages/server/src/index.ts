@@ -10,6 +10,7 @@ import { LlmService } from './services/llm';
 import { OcrService } from './services/ocr';
 import { RateLimiter } from './services/rateLimiter';
 import { MessageService } from './services/message';
+import { startDingtalkStream } from './stream/dingtalkStream';
 import { initWs, wsBroadcast } from './ws';
 
 const repo = new InMemoryRepository();
@@ -31,3 +32,9 @@ server.listen(config.port, () => {
   console.log(`[unimsg] server listening on :${config.port} (mock=${config.mock}, store=${store})`);
   console.log(`[unimsg] auth=Bearer ${config.apiToken === 'dev-token' ? 'dev-token(默认)' : '***'}`);
 });
+
+if (config.dingtalkStream) {
+  startDingtalkStream(svc).catch((e) => {
+    console.error('[stream] 启动失败:', e instanceof Error ? e.message : e);
+  });
+}

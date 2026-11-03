@@ -40,6 +40,9 @@ export const config = {
   // 入口鉴权令牌（服务端私有；前端登录后携带 Bearer）。未配置时用 dev-token 便于本地演示。
   apiToken: process.env.API_TOKEN ?? 'dev-token',
 
+  /** 钉钉 Stream 长连接（免公网回调），开启后额外订阅机器人消息 */
+  dingtalkStream: bool(process.env.DINGTALK_STREAM, false),
+
   // 边界降级参数（全部走环境变量，评审现场可调）
   ocrThreshold: Number(process.env.OCR_CONFIDENCE_THRESHOLD ?? 0.7),
   sendMaxRetry: Number(process.env.SEND_MAX_RETRY ?? 3),
