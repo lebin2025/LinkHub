@@ -10,19 +10,19 @@
  *  - GET  /cgi-bin/gettoken?corpid&corpsecret → access_token（real.ts 统一缓存）
  *  - POST /cgi-bin/message/send?access_token  { touser, msgtype, agentid, text:{content} }
  *
- * MOCK=true 且报文未加密时全部走本地 Mock，保证零凭据也能跑通演示；
- * 只要配置了 Token/EncodingAESKey，无论 MOCK 与否都按真实规则严格验签。
+ * MOCK 模式下且报文未加密时全部走本地 Mock，保证零凭据也能跑通演示；
+ * 只要配置了 Token/EncodingAESKey，无论 Mock 与否都按真实规则严格验签。
  */
 import {
-  Platform, MsgStatus, UnifiedMessage, PlatformConnector,
+  Platform, MsgStatus, UnifiedMessage, PlatformConnector, type SendResult,
 } from '@unimsg/shared';
 import { config } from '../config';
-import { genTraceId, mockSend, verifyMock, inferType } from './base';
+import { genTraceId, mockSend, verifyMock, inferType, isMock, assertRealSendable } from './base';
 import { safeEqual, wecomDecrypt, wecomEncrypt, wecomSign } from './crypto';
 import { buildXml, parseXml, type XmlObject } from './wecomXml';
 import { postJson, wecomAccessToken } from './real';
 
-const SEND_URL = 'https://qyapi.weixin.qq.com/cgi-bin/message/send';
+const SEND_PATH = '/cgi-bin/message/send';
 /** 回调时间戳容忍窗口（防重放），与钉钉一致取 1 小时 */
 const SIGN_TTL_SEC = 3600;
 
@@ -87,7 +87,7 @@ export function challenge(payload: unknown): unknown | undefined {
   const { token, aesKey } = config.platforms.wecom;
   if (!token || !aesKey) {
     // 本地 Mock 演示：没有任何凭据时原样回显；真实模式绝不放水
-    return config.mock ? echostr : undefined;
+    return isMock(Platform.WECOM) ? echostr : undefined;
   }
   const { signature, timestamp, nonce } = signFields(q, undefined);
   if (!signature || !timestamp || !nonce) return undefined;
@@ -103,7 +103,7 @@ export function verify(
 ): boolean {
   const fields = toFields(payload);
   const encrypted = pick(fields, 'Encrypt');
-  if (config.mock && !encrypted) return verifyMock(sig);
+  if (isMock(Platform.WECOM) && !encrypted) return verifyMock(sig);
 
   const { token } = config.platforms.wecom;
   if (!token) return false;
@@ -168,12 +168,12 @@ export function encryptReply(
   return buildXml({ Encrypt: encrypt, MsgSignature: signature, TimeStamp: timestamp, Nonce: nonce });
 }
 
-export async function send(msg: UnifiedMessage): Promise<{ ok: boolean; platformReply?: string }> {
+export async function send(msg: UnifiedMessage): Promise<SendResult> {
   const payload = convert(msg) as any;
-  if (config.mock) {
-    mockSend(Platform.WECOM, payload);
-    return { ok: true };
+  if (isMock(Platform.WECOM)) {
+    return mockSend(Platform.WECOM, payload);
   }
+  assertRealSendable(Platform.WECOM);
 
   const { corpId, secret, agentId } = config.platforms.wecom;
   if (!corpId || !secret) throw new Error('企业微信真实发送缺少 WECOM_CORP_ID / WECOM_SECRET');
@@ -183,12 +183,13 @@ export async function send(msg: UnifiedMessage): Promise<{ ok: boolean; platform
   }
 
   const token = await wecomAccessToken();
-  const data = await postJson(`${SEND_URL}?access_token=${encodeURIComponent(token)}`, payload);
+  const url = `${config.platforms.wecom.baseUrl}${SEND_PATH}?access_token=${encodeURIComponent(token)}`;
+  const data = await postJson(url, payload);
   if (data.errcode !== 0) {
     const invalid = data.invaliduser ? ` invaliduser=${data.invaliduser}` : '';
     throw new Error(`企业微信发送失败: ${data.errcode ?? 'unknown'} ${data.errmsg ?? ''}${invalid}`);
   }
-  return { ok: true, platformReply: data.msgid ? String(data.msgid) : undefined };
+  return { ok: true, mode: 'real', platformReply: data.msgid ? String(data.msgid) : undefined };
 }
 
 export const wecomConnector: PlatformConnector = {

@@ -1,5 +1,7 @@
 node_modules/
 dist/
 .env
+# e2e / 运维日志（可随时删除，不进仓库）
 *.log
+*.log.err
 .DS_Store

@@ -123,6 +123,72 @@ describe('HttpApi', () => {
     expect(health).toEqual({ received: 3, deduped: 1, sent: 1, failed: 0, dlq: 0 });
   });
 
+  it('health：透传后端 sentMock（模拟发送次数）', async () => {
+    mockFetch(
+      jsonResponse({ ok: true, received: 3, deduped: 1, sent: 2, sentMock: 1, failed: 0, dlq: 0 }),
+    );
+    const api = new HttpApi(BASE, TOKEN);
+    const health = await api.health();
+    expect(health.sent).toBe(2);
+    expect(health.sentMock).toBe(1);
+  });
+
+  it('accounts：解包四类数据源，保留邮箱嵌套账号与 mode/missing', async () => {
+    const fn = mockFetch(
+      jsonResponse({
+        ok: true,
+        data: [
+          {
+            platform: 'feishu',
+            label: '飞书',
+            configured: true,
+            policy: 'auto',
+            mode: 'real',
+            canReceive: true,
+            canSend: true,
+            missing: [],
+            warnings: ['未配置 FEISHU_ENCRYPT_KEY：仅支持未加密回调'],
+            reason: '凭据齐全，auto → 真实接口',
+          },
+          {
+            platform: 'mail',
+            label: '邮箱',
+            configured: true,
+            policy: 'auto',
+            mode: 'real',
+            missing: [],
+            issues: [{ level: 'warn', message: 'MAIL_WORK_PROVIDER=custom：请确认自定义 host' }],
+            accounts: [
+              {
+                key: 'qq',
+                label: 'QQ邮箱',
+                address: 'me@qq.com',
+                imapHost: 'imap.qq.com',
+                smtpHost: 'smtp.qq.com',
+                folders: ['INBOX'],
+                mode: 'real',
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    const api = new HttpApi(BASE, TOKEN);
+    const accounts = await api.accounts();
+
+    expect(fn).toHaveBeenCalledTimes(1);
+    expect(accounts).toHaveLength(2);
+    expect(accounts[0]).toMatchObject({ platform: Platform.FEISHU, mode: 'real', canSend: true });
+    // 能力缺口 / 配置问题也要原样透传给账号页
+    expect(accounts[0]?.warnings?.[0]).toContain('FEISHU_ENCRYPT_KEY');
+    expect(accounts[1]?.issues?.[0]).toMatchObject({ level: 'warn' });
+    expect(accounts[1]?.accounts?.[0]).toMatchObject({
+      key: 'qq',
+      imapHost: 'imap.qq.com',
+      folders: ['INBOX'],
+    });
+  });
+
   it('401 映射为 ApiError（status=401）', async () => {
     mockFetch(jsonResponse({ ok: false, error: 'unauthorized' }, 401));
     const api = new HttpApi(BASE, 'bad-token');

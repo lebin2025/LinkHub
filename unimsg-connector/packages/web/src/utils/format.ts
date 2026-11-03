@@ -1,3 +1,4 @@
+import type { DeliveryInfo } from '@unimsg/shared';
 import { MsgStatus, Platform } from '../types';
 import type { MsgType, UnifiedMessage } from '../types';
 
@@ -34,6 +35,23 @@ export const TYPE_LABEL: Record<MsgType, string> = {
   file: '文件',
   todo: '待办',
 };
+
+/** 投递方式展示结果：kind 决定 Tag 颜色，text 直接展示 */
+export interface DeliveryLabel {
+  text: string;
+  kind: 'real' | 'mock' | 'none';
+}
+
+/**
+ * 回写投递方式文案（收件箱详情与账号页复用）。
+ * 契约要求：Mock 结果必须明确标注「未调用真实平台」，绝不伪装成真实平台已收到。
+ */
+export function deliveryLabel(delivery?: DeliveryInfo): DeliveryLabel {
+  if (!delivery) return { text: '—', kind: 'none' };
+  if (delivery.mode === 'mock') return { text: '模拟发送（未调用真实平台）', kind: 'mock' };
+  const platformReply = delivery.platformReply?.trim();
+  return { text: platformReply ? `真实接口（${platformReply}）` : '真实接口', kind: 'real' };
+}
 
 /** 相对时间：刚刚 / n 分钟前 / 今天 HH:mm / 昨天 HH:mm / MM-DD HH:mm */
 export function formatRelative(iso: string, now = Date.now()): string {

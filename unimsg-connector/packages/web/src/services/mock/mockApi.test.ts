@@ -52,23 +52,68 @@ describe('MockApi', () => {
     await wait(40);
     const updated = await api.get(first.traceId);
     expect(updated?.status).toBe(MsgStatus.SYNCED);
+    // Mock 回写必须如实标注投递方式：mode=mock，绝不伪装成真实平台回执
+    expect(updated?.delivery?.mode).toBe('mock');
+    expect(updated?.delivery?.at).toBeTruthy();
 
     const trace = await api.trace(first.traceId);
     const events = trace.log.map((e) => e.event);
     for (const event of ['received', 'intent', 'processing', 'replied', 'sent', 'synced']) {
       expect(events).toContain(event);
     }
+    const sentEvent = trace.log.find((e) => e.event === 'sent' && e.detail?.includes('模拟发送'));
+    expect(sentEvent).toBeTruthy();
   });
 
   it('演示「发送失败」分支会进入 failed 并累计失败指标', async () => {
-    const [first] = await api.list();
+    // 选一条尚未成功投递过的消息：失败后不应凭空出现 delivery
+    const target = (await api.list()).find((m) => m.status === MsgStatus.RECEIVED);
+    expect(target).toBeTruthy();
+    const sentMockBefore = (await api.health()).sentMock ?? 0;
     api.armNextSendFailure();
-    await api.reply(first.traceId, '这条会失败');
+    await api.reply(target!.traceId, '这条会失败');
     await wait(40);
-    const updated = await api.get(first.traceId);
+    const updated = await api.get(target!.traceId);
     expect(updated?.status).toBe(MsgStatus.FAILED);
+    // 失败不是成功投递：不写 delivery，也不累计模拟发送次数
+    expect(updated?.delivery).toBeUndefined();
     const health = await api.health();
     expect(health.failed).toBeGreaterThan(0);
+    expect(health.sentMock ?? 0).toBe(sentMockBefore);
+  });
+
+  it('账号状态含四类数据源与邮箱多账号，嵌套数据是深拷贝', async () => {
+    const accounts = await api.accounts();
+    expect(accounts.map((a) => a.platform)).toEqual([
+      Platform.FEISHU,
+      Platform.DINGTALK,
+      Platform.WECOM,
+      Platform.MAIL,
+    ]);
+
+    const mail = accounts.find((a) => a.platform === Platform.MAIL);
+    expect(mail?.configured).toBe(true);
+    expect(mail?.mode).toBe('real');
+    expect(mail?.accounts?.length).toBeGreaterThanOrEqual(1);
+    expect(mail?.accounts?.[0]).toMatchObject({
+      key: 'qq',
+      address: 'me@qq.com',
+      imapHost: 'imap.qq.com',
+      smtpHost: 'smtp.qq.com',
+    });
+
+    // 修改返回值不应污染种子数据（深拷贝）
+    mail?.accounts?.[0]?.folders.push('Spam');
+    const again = await api.accounts();
+    expect(again.find((a) => a.platform === Platform.MAIL)?.accounts?.[0]?.folders).not.toContain('Spam');
+  });
+
+  it('Mock 模拟发送单独累计 sentMock', async () => {
+    const before = (await api.health()).sentMock ?? 0;
+    const [first] = await api.list();
+    await api.reply(first.traceId, '收到');
+    await wait(40);
+    expect((await api.health()).sentMock).toBe(before + 1);
   });
 
   it('标记完成写入 done 与 done 事件', async () => {

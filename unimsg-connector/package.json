@@ -6,8 +6,10 @@
   "scripts": {
     "dev": "pnpm --filter @unimsg/server dev",
     "start": "pnpm --filter @unimsg/server start",
+    "doctor": "pnpm --filter @unimsg/server run doctor",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm --filter @unimsg/server test",
+    "test:web": "pnpm --filter @unimsg/web test",
     "e2e": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/e2e.ps1",
     "e2e:sh": "bash scripts/e2e.sh"
   },
@@ -16,3 +18,4 @@
     "node": ">=20"
   }
 }
+

@@ -15,9 +15,9 @@ export type LlmResult =
 
 export class LlmService {
   async analyze(msg: UnifiedMessage): Promise<LlmResult> {
-    // 真实 provider 已配置且非 mock 时，将来在此接入真实 API；
-    // 当前统一走本地 mock，保证零密钥可演示。
-    if (!config.mock && config.llm.provider !== 'mock' && config.llm.apiKey) {
+    // 真实 provider 已配置时，将来在此接入真实 API（当前统一走本地 mock，保证零密钥可演示）；
+    // 这里刻意不看平台模式：LLM 的 Mock/真实与平台连接器解耦，避免"飞书换号导致意图识别切换"。
+    if (config.llm.provider !== 'mock' && config.llm.apiKey) {
       // TODO(real): const res = await callWenxinOrQwen(msg, config.llmTimeoutMs); if 失败 return {ok:false,...}
     }
     return this.mock(msg);

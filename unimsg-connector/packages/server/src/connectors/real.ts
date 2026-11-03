@@ -60,7 +60,7 @@ export async function feishuTenantToken(): Promise<string> {
   const hit = tokens.get(cacheKey);
   if (hit && hit.exp > Date.now()) return hit.token;
 
-  const data = await postJson('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
+  const data = await postJson(`${config.platforms.feishu.baseUrl}/open-apis/auth/v3/tenant_access_token/internal`, {
     app_id: appId,
     app_secret: appSecret,
   });
@@ -80,7 +80,7 @@ export async function dingtalkAccessToken(): Promise<string> {
   const hit = tokens.get(cacheKey);
   if (hit && hit.exp > Date.now()) return hit.token;
 
-  const data = await postJson('https://api.dingtalk.com/v1.0/oauth2/accessToken', { appKey, appSecret });
+  const data = await postJson(`${config.platforms.dingtalk.baseUrl}/v1.0/oauth2/accessToken`, { appKey, appSecret });
   if (!data.accessToken) {
     throw new Error(`钉钉 accessToken 获取失败: ${JSON.stringify(data).slice(0, 200)}`);
   }
@@ -102,7 +102,7 @@ export async function wecomAccessToken(): Promise<string> {
   if (hit && hit.exp > Date.now()) return hit.token;
 
   const qs = new URLSearchParams({ corpid: corpId, corpsecret: secret });
-  const data = await getJson(`https://qyapi.weixin.qq.com/cgi-bin/gettoken?${qs.toString()}`);
+  const data = await getJson(`${config.platforms.wecom.baseUrl}/cgi-bin/gettoken?${qs.toString()}`);
   if (data.errcode !== 0 || !data.access_token) {
     throw new Error(`企业微信 access_token 获取失败: ${data.errcode ?? 'unknown'} ${data.errmsg ?? ''}`);
   }
@@ -110,3 +110,4 @@ export async function wecomAccessToken(): Promise<string> {
   tokens.set(cacheKey, { token: data.access_token, exp: Date.now() + ttl * 1000 });
   return data.access_token;
 }
+

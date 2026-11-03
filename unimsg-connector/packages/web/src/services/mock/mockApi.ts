@@ -97,10 +97,17 @@ export class MockApi implements DemoApi {
         this.patch(id, { status: MsgStatus.FAILED }, 'failed', 'platform 500：重试 3 次仍失败，已写入死信队列');
         return;
       }
-      this.patch(id, { status: MsgStatus.SENT }, 'sent');
+      this.patch(
+        id,
+        { status: MsgStatus.SENT, delivery: { mode: 'mock', at: new Date().toISOString() } },
+        'sent',
+        '模拟发送（未调用真实平台）',
+      );
       window.setTimeout(() => {
         this.patch(id, { status: MsgStatus.SYNCED }, 'synced');
         this.metrics.sent += 1;
+        // Mock 模拟发送单独计数：页面上与真实发送区分展示
+        this.metrics.sentMock = (this.metrics.sentMock ?? 0) + 1;
       }, this.options.syncDelay);
     }, this.options.sendDelay);
 
@@ -120,7 +127,12 @@ export class MockApi implements DemoApi {
 
   async accounts(): Promise<AccountInfo[]> {
     await this.wait();
-    return ACCOUNTS.map((a) => ({ ...a }));
+    // 深拷贝到嵌套的邮箱账号 / 目录数组，避免调用方(或页面)修改返回值污染种子数据
+    return ACCOUNTS.map((a) => ({
+      ...a,
+      missing: a.missing ? [...a.missing] : undefined,
+      accounts: a.accounts?.map((m) => ({ ...m, folders: [...m.folders] })),
+    }));
   }
 
   async health(): Promise<HealthInfo> {

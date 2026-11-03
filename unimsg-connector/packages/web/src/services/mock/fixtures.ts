@@ -1,9 +1,12 @@
 /**
- * Mock 种子数据：覆盖三平台、六种状态、四类消息、降级与异常分支，
- * 让前端在没有后端的情况下也能完整演示「接收 → 展示 → 处理 → 回写 → 回流」。
+ * Mock 种子数据：覆盖飞书 / 钉钉 / 企微三平台消息、六种状态、四类消息、降级与异常分支，
+ * 让前端在没有后端的情况下也能完整演示「接收 → 展示 → 处理 → 回写 → 回流」；
+ * 账号状态额外包含邮箱多账号样本（与后端 /api/accounts 同构）。
  */
+import type { DeliveryInfo } from '@unimsg/shared';
 import { MsgStatus, Platform } from '../../types';
 import type { MsgType, TraceEntry, UnifiedMessage } from '../../types';
+import type { AccountInfo } from '../api';
 
 const NOW = Date.now();
 const MIN = 60_000;
@@ -24,6 +27,8 @@ interface Seed {
   needsReview?: boolean;
   minutesAgo: number;
   failReason?: string;
+  /** 已回写成功的种子消息：记录一条 Mock 投递回执，供「投递方式」展示 */
+  deliveryReply?: string;
 }
 
 const SEEDS: Seed[] = [
@@ -40,6 +45,7 @@ const SEEDS: Seed[] = [
     replyDraft: '收到，我会在截止前完成。',
     reply: '收到，周五前交周报。',
     minutesAgo: 12,
+    deliveryReply: 'om_mock_1001',
   },
   {
     platform: Platform.FEISHU,
@@ -108,6 +114,7 @@ const SEEDS: Seed[] = [
     replyDraft: '收到，我今天核对完反馈。',
     reply: '收到，我今天核对完反馈。',
     minutesAgo: 176,
+    deliveryReply: 'mock_dingtalk_2003',
   },
   {
     platform: Platform.WECOM,
@@ -294,6 +301,11 @@ export function createSeedData(): SeedData {
       confidence,
       seed.failReason,
     );
+    const updatedAt = log[log.length - 1]?.at ?? createdAt;
+    // 已回写成功的种子消息补一条 Mock 投递记录：演示「模拟发送」如实标注，不伪装成真实平台回执
+    const delivery: DeliveryInfo | undefined = seed.deliveryReply
+      ? { mode: 'mock', platformReply: seed.deliveryReply, at: updatedAt }
+      : undefined;
     const message: UnifiedMessage = {
       traceId,
       platform: seed.platform,
@@ -308,7 +320,8 @@ export function createSeedData(): SeedData {
       needsReview: seed.needsReview,
       status: seed.status,
       createdAt,
-      updatedAt: log[log.length - 1]?.at ?? createdAt,
+      updatedAt,
+      delivery,
     };
     return message;
   });
@@ -380,10 +393,90 @@ export const INCOMING_TEMPLATES: Array<Pick<Seed, 'platform' | 'senderId' | 'sen
   },
 ];
 
-export const ACCOUNTS = [
-  { platform: Platform.FEISHU, configured: true },
-  { platform: Platform.DINGTALK, configured: true },
-  { platform: Platform.WECOM, configured: false },
+/**
+ * 账号状态样本：与后端 /api/accounts 同构（四类数据源）。
+ * mode 是「本次实际通道」：飞书/邮箱凭据齐全走真实，钉钉因 MOCK 开关走模拟，
+ * 企微缺发信凭据回退模拟——前端据此打绿 / 橙 Tag，Mock 绝不显示成真实成功；
+ * warnings / issues 是能力缺口与配置问题，前端逐条展示（最需要的可替换性提示）。
+ */
+export const ACCOUNTS: AccountInfo[] = [
+  {
+    platform: Platform.FEISHU,
+    label: '飞书',
+    configured: true,
+    policy: 'auto',
+    mode: 'real',
+    canReceive: true,
+    canSend: true,
+    missing: [],
+    reason: '凭据齐全，auto → 真实接口',
+  },
+  {
+    platform: Platform.DINGTALK,
+    label: '钉钉',
+    configured: true,
+    policy: 'auto',
+    mode: 'mock',
+    canReceive: true,
+    canSend: true,
+    missing: [],
+    reason: '凭据齐全，但 MOCK=true → 本地模拟发送',
+  },
+  {
+    platform: Platform.WECOM,
+    label: '企业微信',
+    configured: false,
+    policy: 'auto',
+    mode: 'mock',
+    canReceive: true,
+    canSend: false,
+    missing: ['WECOM_SECRET', 'WECOM_AGENT_ID'],
+    // 能力缺口提示：与 missing 并列展示，评审一眼看出「缺什么会导致什么」
+    warnings: [
+      '只能收不能发：缺少 WECOM_SECRET / WECOM_AGENT_ID（发信凭据）',
+      '企业微信要求发信出口 IP 在企业可信 IP 内，否则报 60020（用 pnpm run doctor 查看出口 IP）',
+    ],
+    reason: '收消息凭据齐全，缺少发信凭据，发送回退 Mock 模拟',
+  },
+  {
+    platform: Platform.MAIL,
+    label: '邮箱',
+    configured: true,
+    policy: 'auto',
+    mode: 'real',
+    canReceive: true,
+    canSend: true,
+    missing: [],
+    reason: '2 个邮箱账号已配置',
+    // 配置问题：error 红 / warn 橙，逐条展示（只给文案，不含授权码）
+    issues: [
+      { level: 'warn', message: 'MAIL_WORK_PROVIDER=custom：请确认自定义 IMAP / SMTP host 与端口' },
+      {
+        level: 'error',
+        message: '邮箱 hr@company.com 缺少 MAIL_HR_AUTH_CODE（需网页端开启 IMAP/SMTP 后生成授权码），该账号已跳过',
+      },
+    ],
+    accounts: [
+      {
+        key: 'qq',
+        label: 'QQ邮箱',
+        address: 'me@qq.com',
+        imapHost: 'imap.qq.com',
+        smtpHost: 'smtp.qq.com',
+        folders: ['INBOX', 'Junk'],
+        mode: 'real',
+      },
+      {
+        key: '163',
+        label: '163邮箱',
+        address: 'team@163.com',
+        imapHost: 'imap.163.com',
+        smtpHost: 'smtp.163.com',
+        folders: ['INBOX'],
+        mode: 'real',
+      },
+    ],
+  },
 ];
 
-export const HEALTH = { received: 14, deduped: 3, sent: 9, failed: 1, dlq: 1 };
+export const HEALTH = { received: 14, deduped: 3, sent: 9, failed: 1, dlq: 1, sentMock: 9 };

@@ -7,10 +7,10 @@
  */
 import { randomUUID } from 'node:crypto';
 import {
-  Platform, MsgStatus, UnifiedMessage, PlatformConnector,
+  Platform, MsgStatus, UnifiedMessage, PlatformConnector, type SendResult,
 } from '@unimsg/shared';
 import { config, type MailAccount } from '../../config';
-import { genTraceId, mockSend, verifyMock, inferType } from '../base';
+import { genTraceId, mockSend, verifyMock, inferType, isMock, assertRealSendable } from '../base';
 import { buildMail, type ParsedMessage } from './mime';
 import { sendMail } from './smtpClient';
 
@@ -77,9 +77,10 @@ export function convert(msg: UnifiedMessage): MailEnvelope {
   };
 }
 
-export async function send(msg: UnifiedMessage): Promise<{ ok: boolean; platformReply?: string }> {
+export async function send(msg: UnifiedMessage): Promise<SendResult> {
   const envelope = convert(msg);
-  if (config.mock) return mockSend(Platform.MAIL, envelope);
+  if (isMock(Platform.MAIL)) return mockSend(Platform.MAIL, envelope);
+  assertRealSendable(Platform.MAIL);
   if (!envelope.to) throw new Error('邮箱真实回写缺少收件人（conversation.id）');
 
   const account = findAccount(envelope.accountKey);
@@ -88,7 +89,7 @@ export async function send(msg: UnifiedMessage): Promise<{ ok: boolean; platform
     messageId: `${randomUUID()}@linkhub.local`,
   });
   const receipt = await sendMail(account, envelope.to, raw);
-  return { ok: true, platformReply: receipt };
+  return { ok: true, mode: 'real', platformReply: receipt };
 }
 
 /**
@@ -96,7 +97,7 @@ export async function send(msg: UnifiedMessage): Promise<{ ok: boolean; platform
  * 防止任何人伪造"邮件事件"入库；新邮件只能由本机轮询直接 ingest。
  */
 export function verify(_payload: unknown, sig: string): boolean {
-  if (config.mock) return verifyMock(sig);
+  if (isMock(Platform.MAIL)) return verifyMock(sig);
   return false;
 }
 

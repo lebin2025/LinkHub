@@ -3,13 +3,15 @@
  *
  * - genTraceId：每条消息一个全链路追踪号（闭环可回放的基础）。
  * - sentBox：Mock 模式下的"已发送箱"。真实平台不可达时，回写动作被
- *   记录到这里，既能在演示里证明"对方平台确实收到"，也能被单测断言。
+ *   记录到这里，既能在演示里证明"本地确实走到了发送步骤"，也能被单测断言。
+ *   ⚠️ Mock 发送一律返回 mode='mock'，由消息中枢写入 delivery 并在前端标注「模拟发送」，
+ *   绝不把 Mock 伪装成真实平台已收到。
  * - verifyMock：本地演示用的宽松验签（接受 'mock' / 'dev*' 签名）。
- *   真实验签会在各平台文件里按官方规则补齐（需要真密钥）。
+ * - assertRealSendable：真实模式但凭据不全时显式报错，方便接手人一眼看出缺什么。
  */
 import { randomUUID } from 'node:crypto';
 import { Platform } from '@unimsg/shared';
-import { config } from '../config';
+import { config, MODE_ENV_KEYS, modeOf } from '../config';
 
 export function genTraceId(): string {
   return randomUUID();
@@ -22,14 +24,33 @@ export const sentBox: Record<string, unknown[]> = {
   [Platform.MAIL]: [],
 };
 
-export function mockSend(platform: Platform, payload: unknown): { ok: boolean } {
+export function mockSend(platform: Platform, payload: unknown): { ok: boolean; mode: 'mock' } {
   sentBox[platform].push({ at: new Date().toISOString(), payload });
   console.log(`[mock-send] -> ${platform}:`, JSON.stringify(payload));
-  return { ok: true };
+  return { ok: true, mode: 'mock' };
 }
 
 export function verifyMock(sig: string): boolean {
   return sig === 'mock' || sig.startsWith('dev');
+}
+
+/** 是否走本地模拟（各连接器统一从这里取，禁止再读全局开关） */
+export function isMock(platform: Platform): boolean {
+  return modeOf(platform) === 'mock';
+}
+
+/**
+ * 真实模式下的"发件能力"守卫：凭据不全时直接抛错并给出可操作建议。
+ * 这是"绝不静默假装成功"的最后一道防线。
+ */
+export function assertRealSendable(platform: Platform): void {
+  const r = config.runtime[platform];
+  if (r.canSend) return;
+  const detail = r.missing.length > 0 ? `缺少 ${r.missing.join(' / ')}` : '凭据不完整';
+  throw new Error(
+    `${r.label}当前是真实模式（${MODE_ENV_KEYS[platform]}=${r.policy}），但${detail}。`
+    + `可运行 pnpm run doctor 自检，或把 ${MODE_ENV_KEYS[platform]} 设为 mock 先本地演示。`,
+  );
 }
 
 /** 根据正文猜测消息类型，便于演示里把"待办类"消息高亮 */

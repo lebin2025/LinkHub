@@ -3,15 +3,15 @@
  *
  * receive：解析钉钉回调（conversationId / senderStaffId / msgId）→ 统一消息。
  * convert：统一消息 → 机器人发送参数。
- * send   ：MOCK=true 写入 sentBox；否则换取 accessToken 调机器人接口。
- * verify ：MOCK=true 宽松验签；否则校验 timestamp + HMAC 签名。
+ * send   ：Mock 模式写入 sentBox 并返回 mode='mock'；否则换取 accessToken 调机器人接口。
+ * verify ：Mock 模式宽松验签；否则校验 timestamp + HMAC 签名。
  * decrypt：AES 解密 encrypt 字段。
  */
 import {
-  Platform, MsgStatus, UnifiedMessage, PlatformConnector,
+  Platform, MsgStatus, UnifiedMessage, PlatformConnector, type SendResult,
 } from '@unimsg/shared';
 import { config } from '../config';
-import { genTraceId, mockSend, verifyMock, inferType } from './base';
+import { genTraceId, mockSend, verifyMock, inferType, isMock, assertRealSendable } from './base';
 import { dingtalkDecrypt, dingtalkSign, safeEqual } from './crypto';
 import { dingtalkAccessToken, postJson } from './real';
 
@@ -65,7 +65,7 @@ export function verify(
   _sig: string,
   headers?: Record<string, string | string[] | undefined>,
 ): boolean {
-  if (config.mock) return verifyMock(_sig);
+  if (isMock(Platform.DINGTALK)) return verifyMock(_sig);
 
   const { aesToken, aesKey } = config.platforms.dingtalk;
   if (!aesToken || !aesKey) return false;
@@ -78,35 +78,36 @@ export function verify(
   return safeEqual(dingtalkSign(aesToken, timestamp, aesKey), sign);
 }
 
-export async function send(msg: UnifiedMessage): Promise<{ ok: boolean; platformReply?: string }> {
+export async function send(msg: UnifiedMessage): Promise<SendResult> {
   const payload = convert(msg) as any;
-  if (config.mock) {
-    mockSend(Platform.DINGTALK, payload);
-    return { ok: true };
+  if (isMock(Platform.DINGTALK)) {
+    return mockSend(Platform.DINGTALK, payload);
   }
+  assertRealSendable(Platform.DINGTALK);
 
   const { robotCode } = config.platforms.dingtalk;
   if (!robotCode) throw new Error('未配置 DINGTALK_ROBOT_CODE');
 
   const token = await dingtalkAccessToken();
   const headers = { 'x-acs-dingtalk-access-token': token };
+  const base = config.platforms.dingtalk.baseUrl;
 
   if (msg.conversation?.type === 'p2p') {
     const data = await postJson(
-      'https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend',
+      `${base}/v1.0/robot/oToMessages/batchSend`,
       { robotCode, userIds: [msg.sender.id], ...payload },
       headers,
     );
-    return { ok: true, platformReply: data.processQueryKey };
+    return { ok: true, mode: 'real', platformReply: data.processQueryKey };
   }
 
   if (!msg.conversation?.id) throw new Error('钉钉群消息缺少 conversation.id');
   const data = await postJson(
-    'https://api.dingtalk.com/v1.0/robot/groupMessages/send',
+    `${base}/v1.0/robot/groupMessages/send`,
     { robotCode, openConversationId: msg.conversation.id, ...payload },
     headers,
   );
-  return { ok: true, platformReply: data.processQueryKey };
+  return { ok: true, mode: 'real', platformReply: data.processQueryKey };
 }
 
 export const dingtalkConnector: PlatformConnector = { verify, decrypt, receive, send, convert };

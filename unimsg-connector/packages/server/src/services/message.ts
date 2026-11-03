@@ -136,16 +136,34 @@ export class MessageService {
     const outgoing: UnifiedMessage = { ...cur, body: cur.reply ?? cur.body };
 
     try {
-      await this.limiter.send(cur.platform, () => connector.send(outgoing));
+      const result = await this.limiter.send(cur.platform, () => connector.send(outgoing));
+      const at = new Date().toISOString();
 
-      let m = this.repo.update(id, { status: MsgStatus.SENT })!;
-      writeTrace(this.repo, m, 'sent');
+      // 把"本次到底走了真实接口还是本地模拟"写进消息与闭环日志，绝不静默假装成功
+      let m = this.repo.update(id, {
+        status: MsgStatus.SENT,
+        delivery: { mode: result.mode, platformReply: result.platformReply, at },
+      })!;
+      writeTrace(
+        this.repo,
+        m,
+        'sent',
+        result.mode === 'mock'
+          ? '模拟发送（本地 Mock，未调用真实平台接口）'
+          : `真实接口${result.platformReply ? ` · ${result.platformReply}` : ''}`,
+      );
       this.broadcast({ type: 'message.updated', data: m });
 
       m = this.repo.update(id, { status: MsgStatus.SYNCED })!;
-      writeTrace(this.repo, m, 'synced');
+      writeTrace(
+        this.repo,
+        m,
+        'synced',
+        result.mode === 'mock' ? '模拟状态回流（本地 Mock）' : '平台状态回流',
+      );
       this.broadcast({ type: 'message.updated', data: m });
       counters.sent += 1;
+      if (result.mode === 'mock') counters.sentMock += 1;
     } catch (e) {
       const reason = e instanceof Error ? e.message : String(e);
       const m = this.repo.update(id, { status: MsgStatus.FAILED })!;

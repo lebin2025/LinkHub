@@ -3,15 +3,15 @@
  *
  * receive：解析 im.message.receive_v1（也兼容旧版简化结构）→ 统一消息。
  * convert：统一消息 → 飞书 im/v1/messages 请求体。
- * send   ：MOCK=true 写入 sentBox；否则换取 tenant_access_token 真实发送。
- * verify ：MOCK=true 宽松验签；否则校验事件头里的 verification token。
+ * send   ：Mock 模式写入 sentBox 并返回 mode='mock'；否则换取 tenant_access_token 真实发送。
+ * verify ：Mock 模式宽松验签；否则校验事件头里的 verification token。
  * decrypt：配置了 Encrypt Key 时解密 encrypt 字段。
  */
 import {
-  Platform, MsgStatus, UnifiedMessage, PlatformConnector,
+  Platform, MsgStatus, UnifiedMessage, PlatformConnector, type SendResult,
 } from '@unimsg/shared';
 import { config } from '../config';
-import { genTraceId, mockSend, verifyMock, inferType } from './base';
+import { genTraceId, mockSend, verifyMock, inferType, isMock, assertRealSendable } from './base';
 import { feishuDecrypt } from './crypto';
 import { feishuTenantToken, postJson } from './real';
 
@@ -78,7 +78,7 @@ export function challenge(payload: unknown): unknown | undefined {
 }
 
 export function verify(payload: unknown, sig: string): boolean {
-  if (config.mock) return verifyMock(sig);
+  if (isMock(Platform.FEISHU)) return verifyMock(sig);
   const expected = config.platforms.feishu.verifyToken;
   if (!expected) return false;
   const p = payload as any;
@@ -86,26 +86,26 @@ export function verify(payload: unknown, sig: string): boolean {
   return typeof token === 'string' && token === expected;
 }
 
-export async function send(msg: UnifiedMessage): Promise<{ ok: boolean; platformReply?: string }> {
+export async function send(msg: UnifiedMessage): Promise<SendResult> {
   const payload = convert(msg) as any;
-  if (config.mock) {
-    mockSend(Platform.FEISHU, payload);
-    return { ok: true };
+  if (isMock(Platform.FEISHU)) {
+    return mockSend(Platform.FEISHU, payload);
   }
+  assertRealSendable(Platform.FEISHU);
 
   const chatId = msg.conversation?.id;
   if (!chatId) throw new Error('飞书真实发送缺少 conversation.id（需先收到该会话的消息）');
 
   const token = await feishuTenantToken();
   const data = await postJson(
-    'https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id',
+    `${config.platforms.feishu.baseUrl}/open-apis/im/v1/messages?receive_id_type=chat_id`,
     payload,
     { Authorization: `Bearer ${token}` },
   );
   if (data.code !== 0) {
     throw new Error(`飞书发送失败: ${data.code} ${data.msg ?? ''}`);
   }
-  return { ok: true, platformReply: data.data?.message_id };
+  return { ok: true, mode: 'real', platformReply: data.data?.message_id };
 }
 
 export const feishuConnector: PlatformConnector = { verify, decrypt, challenge, receive, send, convert };

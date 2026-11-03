@@ -20,8 +20,12 @@ fi
 
 cd "$ROOT"
 echo "[e2e] 工作目录: $ROOT"
-echo "[e2e] 启动后端服务 (port=$PORT) ..."
-SERVER_PORT="$PORT" pnpm --filter @unimsg/server start > "$LOG" 2>&1 &
+echo "[e2e] 启动后端服务 (port=$PORT, 强制 mock 模式，与本地 .env 里的真实凭据隔离) ..."
+# 关键：e2e 必须完全离线可复现，不受 .env 中真实凭据影响
+SERVER_PORT="$PORT" \
+FEISHU_MODE=mock DINGTALK_MODE=mock WECOM_MODE=mock MAIL_MODE=mock \
+DINGTALK_STREAM=false MAIL_ENABLED=false \
+pnpm --filter @unimsg/server start > "$LOG" 2>&1 &
 SERVER_PID=$!
 
 cleanup() {

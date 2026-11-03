@@ -1,11 +1,18 @@
 /**
- * 极简 IMAP4rev1 客户端（node:tls 直连，不引第三方库）。
+ * 极简 IMAP4rev1 客户端（零依赖，只用 node:tls / node:net，不引第三方库）。
  *
  * 只做 LinkHub 需要的一步：登录后按 UID 拉取新邮件原文。
  * 两个坑位写死在这里：
  *  1) 网易/QQ 会拒绝没发 ID 命令的客户端（Unsafe Login），所以登录后补一次 ID；
  *  2) 用 BODY.PEEK[] 取正文，避免把用户邮箱里的信标记成已读。
+ *
+ * 两条链路：
+ *  - imapSecure=true：993 端口 tls.connect 隐式 TLS（原有行为）；
+ *  - imapSecure=false：143 明文 net.connect → 读 greeting → STARTTLS → 用
+ *    tls.connect({ socket }) 在现有连接上升级 TLS（保留已缓冲字节、重新挂监听）→
+ *    之后照旧 ID / LOGIN / SELECT。
  */
+import net from 'node:net';
 import tls from 'node:tls';
 import type { MailAccount } from '../../config';
 
@@ -16,39 +23,83 @@ export interface ImapMail {
   raw: Buffer;
 }
 
+/**
+ * 单测注入点（生产代码不传）：
+ *  - upgrade：把明文 socket 升级成 TLS socket 的假实现，避免单测真的建 TLS 连接；
+ *  - servername：SNI 主机名，connect() 会自动填 account.imapHost。
+ */
+export interface ImapSessionOptions {
+  upgrade?: (plain: net.Socket) => Promise<net.Socket>;
+  servername?: string;
+}
+
 /** 构造也开放给单测：可用假 socket 投递分片响应，验证读取器不空转 */
 export class ImapSession {
   private buf = Buffer.alloc(0);
   private waiters: { res: () => void; rej: (e: Error) => void; timer: NodeJS.Timeout }[] = [];
   private tagNo = 0;
+  private sock: net.Socket;
+  private tlsActive = false;
+  private readonly upgradeFn: (plain: net.Socket) => Promise<net.Socket>;
 
-  constructor(private sock: tls.TLSSocket) {
-    sock.on('data', (chunk) => {
-      this.buf = Buffer.concat([this.buf, chunk]);
-      this.flush();
-    });
-    sock.on('error', (e) => this.failAll(e instanceof Error ? e : new Error(String(e))));
-    sock.on('close', () => this.failAll(new Error('IMAP 连接已关闭')));
+  constructor(sock: net.Socket, opts: ImapSessionOptions = {}) {
+    this.sock = sock;
+    const upgrade = opts.upgrade;
+    this.upgradeFn = upgrade ?? ((plain) => upgradeStartTls(plain, opts.servername ?? ''));
+    this.attach(sock);
   }
 
-  static connect(account: MailAccount): Promise<ImapSession> {
+  static connect(account: MailAccount, opts: ImapSessionOptions = {}): Promise<ImapSession> {
     return new Promise((resolve, reject) => {
-      const sock = tls.connect(
-        { host: account.imapHost, port: account.imapPort, servername: account.imapHost, ALPNProtocols: ['imap'] },
-        () => {
+      const timeoutMsg = `IMAP 连接超时 ${account.imapHost}:${account.imapPort}`;
+      if (account.imapSecure) {
+        const sock = tls.connect(
+          { host: account.imapHost, port: account.imapPort, servername: account.imapHost, ALPNProtocols: ['imap'] },
+          () => {
+            clearTimeout(timer);
+            resolve(new ImapSession(sock, { ...opts, servername: account.imapHost }));
+          },
+        );
+        const timer = setTimeout(() => sock.destroy(new Error(timeoutMsg)), TIMEOUT_MS);
+        sock.once('error', (e) => {
           clearTimeout(timer);
-          const s = new ImapSession(sock);
-          resolve(s);
-        },
-      );
-      const timer = setTimeout(() => {
-        sock.destroy(new Error(`IMAP 连接超时 ${account.imapHost}:${account.imapPort}`));
-      }, TIMEOUT_MS);
+          reject(e);
+        });
+        return;
+      }
+
+      // 明文 143：先建 TCP，greeting 之后由 fetchNewMails 调 startTls() 升级
+      const sock = net.connect({ host: account.imapHost, port: account.imapPort }, () => {
+        clearTimeout(timer);
+        resolve(new ImapSession(sock, { ...opts, servername: account.imapHost }));
+      });
+      const timer = setTimeout(() => sock.destroy(new Error(timeoutMsg)), TIMEOUT_MS);
       sock.once('error', (e) => {
         clearTimeout(timer);
         reject(e);
       });
     });
+  }
+
+  /** 当前会话是否已经跑在 TLS 之上（隐式 TLS 或 STARTTLS 升级成功） */
+  get isTls(): boolean {
+    return this.tlsActive;
+  }
+
+  private attach(sock: net.Socket) {
+    sock.on('data', (chunk: Buffer) => {
+      this.buf = Buffer.concat([this.buf, chunk]);
+      this.flush();
+    });
+    sock.on('error', (e: Error) => this.failAll(e instanceof Error ? e : new Error(String(e))));
+    sock.on('close', () => this.failAll(new Error('IMAP 连接已关闭')));
+  }
+
+  /** 摘掉监听但保留缓冲区：升级 TLS 前必须先让明文 socket 不再消费字节 */
+  private detach(sock: net.Socket) {
+    sock.removeAllListeners('data');
+    sock.removeAllListeners('error');
+    sock.removeAllListeners('close');
   }
 
   private flush() {
@@ -141,12 +192,52 @@ export class ImapSession {
     return this.readLine();
   }
 
+  /**
+   * 明文连接升级 TLS（STARTTLS）：
+   *  1) 先发 `STARTTLS` 并校验 OK 应答；
+   *  2) 摘掉明文 socket 监听后升级（保留缓冲区与 tag 计数，绝不再造一个新会话）；
+   *  3) 在 TLS socket 上重新挂 data/error/close 监听，后续命令自然走加密链路。
+   */
+  async startTls(): Promise<void> {
+    if (this.tlsActive) return;
+    const r = await this.command('STARTTLS');
+    if (!r.ok) throw new Error(`IMAP STARTTLS 失败：${r.text.trim()}`);
+
+    const plain = this.sock;
+    this.detach(plain);
+    const secure = await this.upgradeFn(plain);
+    this.sock = secure;
+    this.tlsActive = true;
+    this.attach(secure);
+  }
+
   close() {
-    this.sock.removeAllListeners('data');
+    this.detach(this.sock);
     this.failAll(new Error('IMAP 会话结束'));
     this.sock.end();
     this.sock.destroy();
   }
+}
+
+/** 在已连接的明文 socket 上升级 TLS（tls.connect({ socket })），握手成功才返回 */
+function upgradeStartTls(plain: net.Socket, servername: string): Promise<net.Socket> {
+  return new Promise((resolve, reject) => {
+    const secure = tls.connect({ socket: plain, servername, ALPNProtocols: ['imap'] });
+    const timer = setTimeout(() => {
+      secure.destroy();
+      reject(new Error('IMAP STARTTLS 升级超时'));
+    }, TIMEOUT_MS);
+    const onError = (e: Error) => {
+      clearTimeout(timer);
+      reject(e);
+    };
+    secure.once('error', onError);
+    secure.once('secureConnect', () => {
+      clearTimeout(timer);
+      secure.removeListener('error', onError);
+      resolve(secure);
+    });
+  });
 }
 
 function quote(s: string): string {
@@ -174,6 +265,9 @@ export async function fetchNewMails(
   const s = await ImapSession.connect(account);
   try {
     const greeting = await s.greeting();
+
+    // 明文 143：greeting 之后立刻 STARTTLS 升级，然后才允许 ID / LOGIN（993 隐式 TLS 已是加密链路）
+    if (!account.imapSecure) await s.startTls();
 
     // 网易/QQ 风控：客户端不报身份会被判定为 Unsafe Login。
     // 登录前后各报一次（RFC 2971 允许任意状态发 ID，服务端不支持时返回 BAD，忽略即可）。

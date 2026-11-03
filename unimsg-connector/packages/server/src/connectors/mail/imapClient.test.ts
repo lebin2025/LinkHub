@@ -9,10 +9,11 @@ import { EventEmitter } from 'node:events';
 import type { TLSSocket } from 'node:tls';
 import { ImapSession } from './imapClient';
 
-function fakeSocket(): EventEmitter & { destroyed: boolean; write: () => boolean } {
+function fakeSocket(): EventEmitter & { destroyed: boolean; writes: string[]; write: (data: string) => boolean } {
   const ee = new EventEmitter() as any;
   ee.destroyed = false;
-  ee.write = () => true;
+  ee.writes = [];
+  ee.write = (data: string) => { ee.writes.push(data); return true; };
   ee.end = () => undefined;
   ee.destroy = () => { ee.destroyed = true; };
   return ee;
@@ -78,4 +79,76 @@ test('IMAP：连接被对端关闭时读取报错而不是空转', async () => {
   const done = s.command('NOOP');
   sock.emit('close');
   await assert.rejects(() => withTimeout(done, 3000, 'NOOP'));
+});
+
+// ---------------------------------------------------------------------------
+// 明文 143 + STARTTLS：用假 socket / 假 upgrade 覆盖，不联网
+// ---------------------------------------------------------------------------
+
+test('IMAP：greeting 后 STARTTLS 升级，ID/LOGIN 等后续命令写在升级后的 socket 上', async () => {
+  const plain = fakeSocket();
+  const secure = fakeSocket();
+  let upgradedFrom: unknown;
+  const s = new ImapSession(plain as unknown as TLSSocket, {
+    upgrade: async (from) => {
+      upgradedFrom = from;
+      return secure as unknown as TLSSocket;
+    },
+  });
+
+  // 1) 先投递 greeting
+  plain.emit('data', Buffer.from('* OK IMAP4rev1 ready\r\n', 'utf8'));
+  assert.equal(await s.greeting(), '* OK IMAP4rev1 ready');
+
+  // 2) greeting 后 STARTTLS：命令写在明文 socket 上
+  const upgrading = s.startTls();
+  plain.emit('data', Buffer.from('a1 OK Begin TLS negotiation now\r\n', 'utf8'));
+  await withTimeout(upgrading, 3000, 'STARTTLS');
+  assert.equal(upgradedFrom, plain, '必须升级同一根明文连接');
+  assert.deepEqual(plain.writes, ['a1 STARTTLS\r\n']);
+
+  // 3) 升级后的 LOGIN 只能写在 TLS socket 上，绝不能回落到明文连接
+  const login = s.command('LOGIN "me@example.com" "auth-code"');
+  assert.deepEqual(secure.writes, ['a2 LOGIN "me@example.com" "auth-code"\r\n']);
+  secure.emit('data', Buffer.from('a2 OK LOGIN completed\r\n', 'utf8'));
+  const r = await withTimeout(login, 3000, 'LOGIN');
+  assert.equal(r.ok, true);
+  assert.deepEqual(plain.writes, ['a1 STARTTLS\r\n'], '升级后明文 socket 不应再收到任何命令');
+  s.close();
+});
+
+test('IMAP：STARTTLS 被服务端拒绝时抛错且不触发 TLS 升级', async () => {
+  const plain = fakeSocket();
+  let upgradeCalls = 0;
+  const s = new ImapSession(plain as unknown as TLSSocket, {
+    upgrade: async () => {
+      upgradeCalls += 1;
+      return plain as unknown as TLSSocket;
+    },
+  });
+
+  const upgrading = s.startTls();
+  plain.emit('data', Buffer.from('a1 NO STARTTLS disabled\r\n', 'utf8'));
+  await assert.rejects(() => withTimeout(upgrading, 3000, 'STARTTLS 拒绝'), /IMAP STARTTLS 失败/);
+  assert.equal(upgradeCalls, 0);
+});
+
+test('IMAP：STARTTLS 升级保留升级前已缓冲的字节，不重置读取器', async () => {
+  const plain = fakeSocket();
+  const secure = fakeSocket();
+  const s = new ImapSession(plain as unknown as TLSSocket, {
+    upgrade: async () => secure as unknown as TLSSocket,
+  });
+
+  const upgrading = s.startTls();
+  // 一次投递：STARTTLS 的 OK 行 + 紧随其后的残余字节（模拟粘包，升级时绝不能丢）
+  plain.emit('data', Buffer.from('a1 OK Begin TLS negotiation now\r\n* PRE-TLS-RESIDUE\r\n', 'utf8'));
+  await withTimeout(upgrading, 3000, 'STARTTLS');
+
+  const noop = s.command('NOOP');
+  secure.emit('data', Buffer.from('a2 OK NOOP completed\r\n', 'utf8'));
+  const r = await withTimeout(noop, 3000, 'NOOP');
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.lines, ['* PRE-TLS-RESIDUE'], '升级前缓冲的应答行必须还在');
+  s.close();
 });

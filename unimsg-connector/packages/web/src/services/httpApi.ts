@@ -107,7 +107,7 @@ export class HttpApi implements MessageApi {
   }
 
   async health(): Promise<HealthInfo> {
-    // /api/health 为公共接口，返回 { ok, ts, received, deduped, sent, failed, dlq }
+    // /api/health 为公共接口，返回 { ok, ts, received, deduped, sent, failed, dlq, sentMock? }
     const body = await this.request<Partial<HealthInfo>>('/api/health');
     return {
       received: body.received ?? 0,
@@ -115,6 +115,8 @@ export class HttpApi implements MessageApi {
       sent: body.sent ?? 0,
       failed: body.failed ?? 0,
       dlq: body.dlq ?? 0,
+      // 仅在后端返回时透传：旧后端没有该字段时不要伪装成 0 次模拟发送
+      ...(typeof body.sentMock === 'number' ? { sentMock: body.sentMock } : {}),
     };
   }
 

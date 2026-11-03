@@ -33,6 +33,28 @@ export interface Sender {
   id: string;
 }
 
+/**
+ * 一次回写实际走的通道：真实平台接口（real）还是本地模拟（mock）。
+ * 契约强制：任何"成功"都必须带上它，前端据此标注「模拟发送」，
+ * 绝不把 Mock 的结果伪装成真实平台已收到。
+ */
+export type DeliveryMode = 'real' | 'mock';
+
+/** 回写投递信息（成功发送后写入消息，前端与回放可见） */
+export interface DeliveryInfo {
+  mode: DeliveryMode;
+  /** 真实平台返回的凭证（飞书 message_id / 钉钉 processQueryKey / 企微 msgid / SMTP 回执） */
+  platformReply?: string;
+  at: string;
+}
+
+/** 连接器发送结果：mode 必须如实反映本次是真实接口还是本地模拟 */
+export interface SendResult {
+  ok: boolean;
+  platformReply?: string;
+  mode: DeliveryMode;
+}
+
 /** 会话（真实回写必须知道发回哪里） */
 export interface Conversation {
   id: string;
@@ -63,6 +85,8 @@ export interface UnifiedMessage {
   platformReply?: string;
   /** 仅后端内部使用：邮箱回写需要的会话信息（账号 / 被回复的 Message-ID / 原主题） */
   mailMeta?: { account: string; inReplyTo: string; subject: string };
+  /** 回写投递方式（成功后写入；Mock 模式也如实记录，便于前端标注"模拟发送"） */
+  delivery?: DeliveryInfo;
 }
 
 /**
@@ -78,8 +102,8 @@ export interface PlatformConnector {
   challenge?(payload: unknown): unknown | undefined;
   /** 外部事件 → 统一消息 */
   receive(raw: unknown): UnifiedMessage;
-  /** 统一消息 → 平台（真实发送 / Mock 模拟发送） */
-  send(msg: UnifiedMessage): Promise<{ ok: boolean; platformReply?: string }>;
+  /** 统一消息 → 平台（真实发送 / Mock 模拟发送），结果必须带上是哪条通道 */
+  send(msg: UnifiedMessage): Promise<SendResult>;
   /** 统一消息 → 平台外部格式（回写前的格式转换） */
   convert(msg: UnifiedMessage): unknown;
 }

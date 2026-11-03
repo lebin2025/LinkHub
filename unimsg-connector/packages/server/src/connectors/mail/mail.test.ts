@@ -5,7 +5,7 @@
 import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { Platform, MsgStatus } from '@unimsg/shared';
-import { config, type MailAccount } from '../../config';
+import { config, forceMode, type MailAccount } from '../../config';
 import { readMessage, decodeWords, parseAddress, buildMail } from './mime';
 import { mailConnector, receive, convert, send, verify } from './mail';
 import { sentBox } from '../base';
@@ -15,8 +15,9 @@ const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64');
 const wrap = (s: string) => b64(s).replace(/(.{76})/g, `$1${CRLF}`);
 
 const qq: MailAccount = {
-  key: 'qq', label: 'QQ邮箱', address: 'me@qq.com', authCode: 'authcode-qq',
-  imapHost: 'imap.qq.com', imapPort: 993, smtpHost: 'smtp.qq.com', smtpPort: 465,
+  key: 'qq', label: 'QQ邮箱', address: 'me@qq.com', authCode: 'authcode-qq', provider: 'qq',
+  imapHost: 'imap.qq.com', imapPort: 993, imapSecure: true,
+  smtpHost: 'smtp.qq.com', smtpPort: 465, smtpSecure: true,
   folders: ['INBOX'],
 };
 
@@ -34,17 +35,18 @@ function simpleMail(subject: string, text: string): string {
   ].join(CRLF);
 }
 
-const orig = { mock: config.mock, accounts: config.mail.accounts };
+const origAccounts = config.mail.accounts;
 
 before(() => {
+  forceMode(Platform.MAIL, 'mock');
   config.mail.accounts = [qq];
 });
 after(() => {
-  config.mock = orig.mock;
-  config.mail.accounts = orig.accounts;
+  config.mail.accounts = origAccounts;
+  forceMode(Platform.MAIL, 'mock');
 });
 beforeEach(() => {
-  config.mock = orig.mock;
+  forceMode(Platform.MAIL, 'mock');
 });
 
 test('MIME：解码 encoded-word 中文主题与 base64 正文', () => {
@@ -183,15 +185,16 @@ test('buildMail：已有 Re: 不重复叠加', () => {
 });
 
 test('send：Mock 模式进已发送箱，真实模式缺账号才报错', async () => {
-  config.mock = true;
+  forceMode(Platform.MAIL, 'mock');
   const parsed = readMessage(simpleMail('项目周报', '内容'));
   const inbound = receive({ source: 'imap', account: 'qq', folder: 'INBOX', uid: 43, ...parsed });
   const before = sentBox[Platform.MAIL].length;
   const r = await send({ ...inbound, reply: '好的' });
   assert.equal(r.ok, true);
+  assert.equal(r.mode, 'mock', 'Mock 发送必须如实返回 mode=mock');
   assert.equal(sentBox[Platform.MAIL].length, before + 1);
 
-  config.mock = false;
+  forceMode(Platform.MAIL, 'real');
   config.mail.accounts = [];
   await assert.rejects(() => send({ ...inbound, reply: '好的' }), /邮箱账号未配置/);
   config.mail.accounts = [qq];
@@ -199,9 +202,9 @@ test('send：Mock 模式进已发送箱，真实模式缺账号才报错', async
 });
 
 test('verify：真实模式拒绝 /webhook/mail（邮箱没有回调），Mock 模式放行演示签名', () => {
-  config.mock = false;
+  forceMode(Platform.MAIL, 'real');
   assert.equal(verify({ any: 'payload' }, 'anything'), false);
-  config.mock = true;
+  forceMode(Platform.MAIL, 'mock');
   assert.equal(verify({ any: 'payload' }, 'mock'), true);
 });
 

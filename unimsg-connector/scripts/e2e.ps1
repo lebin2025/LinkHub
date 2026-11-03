@@ -5,6 +5,9 @@ param([int]$Port = 3001)
 # NOTE: kept ASCII-only so Windows PowerShell 5.1 parses it correctly (no encoding issues).
 
 $ErrorActionPreference = "Stop"
+# smoke.py 输出 UTF-8 中文；PowerShell 5.1 默认按 GBK 解码会乱码，这里统一成 UTF-8
+try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
+$env:PYTHONIOENCODING = "utf-8"
 $root = Split-Path -Parent $PSScriptRoot
 $base = "http://127.0.0.1:$Port"
 $log = Join-Path $root "scripts\e2e-server.log"
@@ -27,8 +30,15 @@ if ($existing) {
 
 $python = if (Get-Command python -ErrorAction SilentlyContinue) { "python" } else { "python3" }
 
-Write-Host "[e2e] starting server on port $Port ..."
+Write-Host "[e2e] starting server on port $Port (forced mock mode, isolated from real .env credentials) ..."
 $env:SERVER_PORT = "$Port"
+# e2e 必须完全离线可复现：强制四个平台 mock，不连真实平台/邮箱，也不受 .env 真实凭据影响
+$env:FEISHU_MODE = "mock"
+$env:DINGTALK_MODE = "mock"
+$env:WECOM_MODE = "mock"
+$env:MAIL_MODE = "mock"
+$env:DINGTALK_STREAM = "false"
+$env:MAIL_ENABLED = "false"
 $proc = Start-Process -FilePath "cmd.exe" `
   -ArgumentList "/c", "pnpm --filter @unimsg/server start" `
   -WorkingDirectory $root -PassThru -WindowStyle Hidden `

@@ -6,7 +6,7 @@
  * 是为了不去改动用户邮箱里的已读状态。
  */
 import { Platform } from '@unimsg/shared';
-import { config } from '../config';
+import { config, modeOf } from '../config';
 import { MessageService } from '../services/message';
 import { readMessage } from '../connectors/mail/mime';
 import { fetchNewMails } from '../connectors/mail/imapClient';
@@ -16,11 +16,22 @@ const PER_ROUND = 20;
 
 export function startMailPoller(svc: MessageService): void {
   if (!config.mail.enabled) {
-    console.log('[mail] 未开启（MAIL_ENABLED=false），跳过邮箱轮询');
+    console.log('[mail] 轮询已关闭（MAIL_ENABLED=false），跳过邮箱轮询');
     return;
   }
+  // 强制 Mock / 凭据不足时绝不连真实 IMAP（e2e 与本地演示都可安全开 MAIL_ENABLED）
+  if (modeOf(Platform.MAIL) !== 'real') {
+    console.log(`[mail] 当前邮箱通道为 ${modeOf(Platform.MAIL)}（MAIL_MODE / 凭据），跳过真实 IMAP 轮询`);
+    return;
+  }
+  if (config.mail.issues.length > 0) {
+    for (const issue of config.mail.issues) {
+      const log = issue.level === 'error' ? console.error : console.warn;
+      log(`[mail] 配置问题${issue.key ? `（${issue.key}）` : ''}：${issue.message}`);
+    }
+  }
   if (config.mail.accounts.length === 0) {
-    console.warn('[mail] MAIL_ENABLED=true 但没有任何邮箱账号，检查 MAIL_*_ADDRESS / MAIL_*_AUTH_CODE');
+    console.warn('[mail] 没有任何可用邮箱账号，检查 MAIL_ACCOUNTS 或 MAIL_<KEY>_ADDRESS / MAIL_<KEY>_AUTH_CODE');
     return;
   }
 
@@ -65,7 +76,7 @@ export function startMailPoller(svc: MessageService): void {
     }
   };
 
-  console.log(`[mail] 轮询已启动，间隔 ${Math.round(config.mail.pollMs / 1000)}s，账号：${config.mail.accounts.map((a) => `${a.label}[${a.folders.join(',')}]`).join(' / ')}`);
+  console.log(`[mail] 轮询已启动，间隔 ${Math.round(config.mail.pollMs / 1000)}s，账号：${config.mail.accounts.map((a) => `${a.label}[${a.folders.join(',')}]@${a.imapHost}`).join(' / ')}`);
   void pollOnce();
   setInterval(() => void pollOnce(), config.mail.pollMs);
 }

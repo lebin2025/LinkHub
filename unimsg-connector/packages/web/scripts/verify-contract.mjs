@@ -4,6 +4,10 @@
  * 目的：把 HttpApi / WsRealtime 对后端形状的所有假设变成可执行断言，
  * 防止后端改动后前端「静默错位」。不管理后端进程，需先启动 server。
  *
+ * 覆盖：health 计数字段 + 四平台实际通道 modes、accounts 的
+ * mode/policy/missing/canReceive/canSend 与邮箱多账号、reply 后的
+ * delivery.mode 投递方式、trace 闭环日志、WS 握手。
+ *
  * 用法：
  *   pnpm --filter @unimsg/server start            # 另开终端
  *   node scripts/verify-contract.mjs [baseUrl] [token]
@@ -93,11 +97,21 @@ async function checkWebSocket() {
 async function main() {
   await waitReady();
 
-  // 1. health（公共接口，HttpApi 解包后取计数字段）
+  // 1. health（公共接口，HttpApi 解包后取计数字段与平台通道）
   const health = await req('GET', '/api/health', { auth: false });
   check('GET /api/health → {ok} + 计数字段', health.status === 200 && health.data?.ok === true);
-  for (const key of ['received', 'deduped', 'sent', 'failed', 'dlq']) {
+  for (const key of ['received', 'deduped', 'sent', 'failed', 'dlq', 'sentMock']) {
     check(`health 含 ${key}`, key in (health.data ?? {}));
+  }
+  // 本次实际通道必须公开可见：评审 curl 一下就知道哪些平台是真接口、哪些是 Mock
+  const modes = health.data?.modes ?? {};
+  check('health 含 modes（各平台实际通道）', Object.keys(modes).length > 0);
+  for (const platform of ['feishu', 'dingtalk', 'wecom', 'mail']) {
+    check(
+      `health.modes.${platform} ∈ real|mock`,
+      modes[platform] === 'real' || modes[platform] === 'mock',
+      String(modes[platform]),
+    );
   }
 
   // 2. 灌一条飞书消息（webhook 走平台签名，不用 Bearer）
@@ -131,14 +145,47 @@ async function main() {
   const id = messages[0]?.traceId;
   check('消息含 traceId', Boolean(id));
 
-  // 5. accounts 信封（HttpApi.accounts 依赖）
+  // 5. accounts 信封 + 契约形状（HttpApi.accounts / 账号页逐项依赖）
   const accounts = await req('GET', '/api/accounts');
+  const accountList = accounts.data?.data ?? [];
   check(
-    'GET /api/accounts → {ok, data: [{platform, configured}]}',
+    'GET /api/accounts → {ok, data: [...]}',
     accounts.status === 200 &&
-      Array.isArray(accounts.data?.data) &&
-      accounts.data.data.every((a) => 'platform' in a && 'configured' in a),
+      accounts.data?.ok === true &&
+      Array.isArray(accountList) &&
+      accountList.length > 0,
+    `count=${accountList.length}`,
   );
+  // 每项都必须带「本次实际通道 / 策略 / 缺失变量 / 收发能力」——账号页据此打 Tag 与告警
+  for (const field of ['mode', 'policy', 'missing', 'canReceive', 'canSend']) {
+    check(
+      `accounts 每项含 ${field}`,
+      accountList.length > 0 && accountList.every((a) => field in a),
+    );
+  }
+  check('accounts 每项 mode ∈ real|mock', accountList.every((a) => a.mode === 'real' || a.mode === 'mock'));
+  check(
+    'accounts 每项 policy ∈ auto|real|mock',
+    accountList.every((a) => ['auto', 'real', 'mock'].includes(a.policy)),
+  );
+  check('accounts 每项 missing 为数组', accountList.every((a) => Array.isArray(a.missing)));
+  check(
+    'accounts 四平台齐全',
+    ['feishu', 'dingtalk', 'wecom', 'mail'].every((p) => accountList.some((a) => a.platform === p)),
+    accountList.map((a) => a.platform).join(','),
+  );
+  // 邮箱是多账号数据源：mail 项必须带 accounts 数组，前端账号页展示每个邮箱明细
+  const mailAccount = accountList.find((a) => a.platform === 'mail');
+  check('accounts 含 mail 且带 accounts 数组', Boolean(mailAccount) && Array.isArray(mailAccount?.accounts));
+  if (Array.isArray(mailAccount?.accounts) && mailAccount.accounts.length > 0) {
+    for (const field of ['key', 'address', 'imapHost', 'smtpHost', 'folders']) {
+      check(`mail.accounts[] 每项含 ${field}`, mailAccount.accounts.every((m) => field in m));
+    }
+    check(
+      'mail.accounts[] 每项 mode ∈ real|mock',
+      mailAccount.accounts.every((m) => m.mode === 'real' || m.mode === 'mock'),
+    );
+  }
 
   if (!id) return;
 
@@ -149,15 +196,24 @@ async function main() {
   check('POST reply → 202 {ok, message, taskId}', reply.status === 202 && Boolean(reply.data?.taskId));
   check('reply 回执状态为 replied', reply.data?.message?.status === 'replied');
 
-  // 7. 异步回写推进到 synced（WS 场景的最终态）
+  // 7. 异步回写推进到 synced（WS 场景的最终态），并核对 delivery 投递方式
   let status = '';
+  let finalMessage;
   for (let i = 0; i < 20; i += 1) {
     const one = await req('GET', `/api/messages/${encodeURIComponent(id)}`);
-    status = one.data?.data?.status ?? '';
+    finalMessage = one.data?.data;
+    status = finalMessage?.status ?? '';
     if (status === 'synced' || status === 'failed') break;
     await new Promise((resolve) => setTimeout(resolve, 150));
   }
   check('回写后状态推进到 synced', status === 'synced', `status=${status}`);
+  // Mock / 真实都必须如实写 delivery.mode，前端据此标注「模拟发送（未调用真实平台）」
+  check(
+    'reply 后消息含 delivery.mode ∈ real|mock',
+    ['real', 'mock'].includes(finalMessage?.delivery?.mode),
+    String(finalMessage?.delivery?.mode),
+  );
+  check('reply 后消息含 delivery.at（ISO 时间）', typeof finalMessage?.delivery?.at === 'string');
 
   // 8. done 只回 {ok}（HttpApi.markDone 必须重取，验证前提）
   const done = await req('POST', `/api/messages/${encodeURIComponent(id)}/done`, { body: {} });

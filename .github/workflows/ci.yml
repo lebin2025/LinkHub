@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: typecheck · test · e2e
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: unimsg-connector
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: unimsg-connector/pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck（shared / server / web）
+        run: pnpm typecheck
+
+      - name: Server unit tests
+        run: pnpm test
+
+      - name: Web unit tests
+        run: pnpm test:web
+
+      - name: Web build
+        run: pnpm --filter @unimsg/web build
+
+      # e2e 会强制四个平台走 mock（不依赖任何真实账号、不触网），
+      # 覆盖接收 → 幂等 → 回复 → 回写标注 → synced → trace 回放全链路。
+      - name: End-to-end smoke（纯 Mock，无凭据可跑）
+        run: pnpm e2e:sh 3121

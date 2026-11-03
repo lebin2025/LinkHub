@@ -20,8 +20,11 @@ describe('AppStore', () => {
     const state = store.getSnapshot();
     expect(state.loading).toBe(false);
     expect(state.messages.length).toBeGreaterThanOrEqual(12);
-    expect(state.accounts).toHaveLength(3);
+    // 四类数据源：飞书 / 钉钉 / 企业微信 / 邮箱
+    expect(state.accounts).toHaveLength(4);
+    expect(state.accounts.find((a) => a.platform === Platform.MAIL)?.accounts?.length).toBeGreaterThan(0);
     expect(state.health?.received).toBeGreaterThan(0);
+    expect(state.health?.sentMock).toBeGreaterThanOrEqual(0);
   });
 
   it('筛选条件生效且不改变原始消息', () => {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Alert, App as AntApp, Button, Tooltip } from 'antd';
+import { Alert, App as AntApp, Button, Tag, Tooltip } from 'antd';
 import {
   ArrowLeftOutlined,
   CheckOutlined,
@@ -11,7 +11,7 @@ import {
 import { MsgStatus } from '../../types';
 import type { UnifiedMessage } from '../../types';
 import { store } from '../../store';
-import { TYPE_LABEL, PLATFORM_META, formatDateTime, formatRelative, shortTrace } from '../../utils/format';
+import { TYPE_LABEL, PLATFORM_META, deliveryLabel, formatDateTime, formatRelative, shortTrace } from '../../utils/format';
 import { AvatarBadge } from '../../components/AvatarBadge';
 import { PlatformTag } from '../../components/PlatformTag';
 import { StatusBadge } from '../../components/StatusBadge';
@@ -32,6 +32,8 @@ export function DetailPanel({ message }: { message: UnifiedMessage }) {
 
   const sentAlready = message.status === MsgStatus.SENT || message.status === MsgStatus.SYNCED;
   const canMarkDone = !message.done;
+  // 投递方式：Mock 必须如实标注，不能显示成真实平台已收到
+  const delivery = deliveryLabel(message.delivery);
 
   const replyLabel = useMemo(() => {
     if (message.status === MsgStatus.FAILED) return '重试发送';
@@ -190,6 +192,16 @@ export function DetailPanel({ message }: { message: UnifiedMessage }) {
             <div>
               <dt>更新时间</dt>
               <dd>{formatDateTime(message.updatedAt)}</dd>
+            </div>
+            <div className="meta-grid__wide">
+              <dt>投递方式</dt>
+              <dd title={delivery.kind === 'none' ? undefined : delivery.text}>
+                {delivery.kind === 'none' ? (
+                  '—'
+                ) : (
+                  <Tag color={delivery.kind === 'mock' ? 'warning' : 'success'}>{delivery.text}</Tag>
+                )}
+              </dd>
             </div>
             <div className="meta-grid__wide">
               <dt>traceId</dt>

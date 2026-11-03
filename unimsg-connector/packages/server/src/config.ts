@@ -5,14 +5,30 @@
  * 它们只在这里被读取，永远不以 VITE_ 前缀注入前端构建产物，
  * 因此评审/部署时即使前端代码被反编译也拿不到真实密钥。
  *
- * MOCK=true（默认）时：三平台发送与验签、LLM、OCR 全部走本地 Mock，
- * 无需任何外部账号即可把闭环跑通。等你拿到真实 apiKey 后，
- * 把 MOCK 改为 false 并填写对应 *_API_KEY 即可无缝切换到真接口。
+ * 可替换性（本项目的核心诉求）：
+ *  - 每个平台用 `<PLATFORM>_MODE = auto | real | mock` 独立决定走真实接口还是本地 Mock，
+ *    默认 auto（凭据够就真实、不够就 Mock），换账号只改 .env，不改代码；
+ *  - 旧全局 `MOCK` 已废弃，仅作为"未显式配置 *_MODE 时的默认策略"，并会打印迁移警告；
+ *  - 邮箱账号数量/服务商不限（`MAIL_ACCOUNTS` 或自动发现 `MAIL_<KEY>_ADDRESS`）；
+ *  - 解析结果在 `config.runtime` 里，`/api/accounts`、启动日志、doctor 全部复用。
  */
 import 'dotenv/config';
 import { config as loadEnv } from 'dotenv';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { Platform, type DeliveryMode } from '@unimsg/shared';
+import {
+  buildPlatformRuntime,
+  MODE_ENV_KEYS,
+  parseMailAccounts,
+  readPlatformCredentials,
+  resolveModePolicies,
+  type MailAccount,
+  type MailAccountIssue,
+  type ModePolicy,
+  type PlatformCredentials,
+  type PlatformRuntime,
+} from './config/runtime';
 
 // pnpm --filter 会把 cwd 切到 packages/server，这里显式补加载 monorepo 根目录的 .env
 const here = dirname(fileURLToPath(import.meta.url));
@@ -21,44 +37,38 @@ loadEnv({ path: resolve(process.cwd(), '.env') });
 
 export type LlmProvider = 'mock' | 'wenxin' | 'qwen';
 export type OcrProvider = 'mock' | 'tencent';
-
-/** 一个邮箱账号 = 一个可收可发的数据源（IMAP 收 + SMTP 发） */
-export interface MailAccount {
-  key: string; // 环境变量的账号段，如 qq / 163
-  label: string; // 展示名
-  address: string;
-  authCode: string; // 授权码（不是网页登录密码）
-  imapHost: string;
-  imapPort: number;
-  smtpHost: string;
-  smtpPort: number;
-  folders: string[]; // 监听的邮箱目录，默认只有 INBOX
-}
+export type { MailAccount, MailAccountIssue, ModePolicy, PlatformRuntime };
+export { MODE_ENV_KEYS };
 
 function bool(v: string | undefined, def = false): boolean {
   return v ? v === 'true' || v === '1' : def;
 }
 
-function mailAccount(key: string, label: string, defaults: { imapHost: string; smtpHost: string }): MailAccount | null {
-  const env = key.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const address = process.env[`MAIL_${env}_ADDRESS`] ?? '';
-  const authCode = process.env[`MAIL_${env}_AUTH_CODE`] ?? '';
-  if (!address || !authCode) return null;
-  return {
-    key,
-    label,
-    address,
-    authCode,
-    imapHost: process.env[`MAIL_${env}_IMAP_HOST`] ?? defaults.imapHost,
-    imapPort: Number(process.env[`MAIL_${env}_IMAP_PORT`] ?? 993),
-    smtpHost: process.env[`MAIL_${env}_SMTP_HOST`] ?? defaults.smtpHost,
-    smtpPort: Number(process.env[`MAIL_${env}_SMTP_PORT`] ?? 465),
-    folders: (process.env[`MAIL_${env}_FOLDERS`] ?? 'INBOX')
-      .split(',')
-      .map((f) => f.trim())
-      .filter(Boolean),
-  };
-}
+/**
+ * Node 测试运行器会给子进程注入 NODE_TEST_CONTEXT：
+ * 单测里默认把所有平台锁成 mock（绝不外呼、不打真实接口），
+ * 需要真实路径的用例显式 `forceMode(platform, 'real')`。
+ */
+const underTest = Boolean(process.env.NODE_TEST_CONTEXT);
+
+const platforms: PlatformCredentials = readPlatformCredentials(process.env);
+const mailParsed = parseMailAccounts(process.env);
+// 老变量 MAIL_ENABLED 仍兼容：显式 false 关轮询；不写时"有账号就开"
+const mailEnabled = process.env.MAIL_ENABLED !== undefined
+  ? bool(process.env.MAIL_ENABLED, false)
+  : mailParsed.accounts.length > 0;
+
+const runtime = buildPlatformRuntime({
+  env: process.env,
+  platforms,
+  mailAccounts: mailParsed.accounts,
+  mailIssues: mailParsed.issues,
+  mailEnabled,
+  underTest,
+});
+
+// 模式相关的全局警告（旧 MOCK 变量、非法 *_MODE 值等），启动日志与 doctor 会打印
+const modeWarnings = resolveModePolicies(process.env, { underTest }).warnings;
 
 export const config = {
   port: Number(process.env.SERVER_PORT ?? 3001),
@@ -68,14 +78,14 @@ export const config = {
   databaseUrl: process.env.DATABASE_URL ?? '',
   redisUrl: process.env.REDIS_URL ?? '',
 
-  // 外部 API 总开关：默认 true = 全部 Mock；拿到真密钥后改 false。
-  mock: bool(process.env.MOCK, true),
+  /** 是否运行在 node:test 子进程里（供 doctor/测试判断，业务代码不用关心） */
+  underTest,
 
   // 入口鉴权令牌（服务端私有；前端登录后携带 Bearer）。未配置时用 dev-token 便于本地演示。
   apiToken: process.env.API_TOKEN ?? 'dev-token',
 
   /** 钉钉 Stream 长连接（免公网回调），开启后额外订阅机器人消息 */
-  dingtalkStream: bool(process.env.DINGTALK_STREAM, false),
+  dingtalkStream: platforms.dingtalk.stream,
 
   // 边界降级参数（全部走环境变量，评审现场可调）
   ocrThreshold: Number(process.env.OCR_CONFIDENCE_THRESHOLD ?? 0.7),
@@ -97,40 +107,102 @@ export const config = {
     secretId: process.env.OCR_SECRET_ID ?? '',
   },
 
-  // 三平台凭据（验签 / 真实发送用）。均为服务端私有。
+  // 平台凭据（验签 / 真实发送用）。均为服务端私有。
   platforms: {
     feishu: {
-      appId: process.env.FEISHU_APP_ID ?? '',
-      appSecret: process.env.FEISHU_APP_SECRET ?? '',
-      verifyToken: process.env.FEISHU_VERIFY_TOKEN ?? '',
-      encryptKey: process.env.FEISHU_ENCRYPT_KEY ?? '',
+      appId: platforms.feishu.appId,
+      appSecret: platforms.feishu.appSecret,
+      verifyToken: platforms.feishu.verifyToken,
+      encryptKey: platforms.feishu.encryptKey,
+      baseUrl: platforms.feishu.baseUrl,
     },
     dingtalk: {
-      // 新版后台叫 Client ID / Client Secret，旧版叫 AppKey / AppSecret
-      appKey: process.env.DINGTALK_CLIENT_ID ?? process.env.DINGTALK_APP_KEY ?? '',
-      appSecret: process.env.DINGTALK_CLIENT_SECRET ?? process.env.DINGTALK_APP_SECRET ?? '',
-      // 机器人编码：企业内部应用通常与 Client ID 相同
-      robotCode: process.env.DINGTALK_ROBOT_CODE ?? process.env.DINGTALK_CLIENT_ID ?? process.env.DINGTALK_APP_KEY ?? '',
-      aesToken: process.env.DINGTALK_AES_TOKEN ?? '',
-      aesKey: process.env.DINGTALK_AES_KEY ?? '',
+      appKey: platforms.dingtalk.appKey,
+      appSecret: platforms.dingtalk.appSecret,
+      robotCode: platforms.dingtalk.robotCode,
+      aesToken: platforms.dingtalk.aesToken,
+      aesKey: platforms.dingtalk.aesKey,
+      baseUrl: platforms.dingtalk.baseUrl,
     },
     wecom: {
-      token: process.env.WECOM_TOKEN ?? '',
-      aesKey: process.env.WECOM_AES_KEY ?? '',
-      corpId: process.env.WECOM_CORP_ID ?? '',
-      agentId: process.env.WECOM_AGENT_ID ?? '',
+      token: platforms.wecom.token,
+      aesKey: platforms.wecom.aesKey,
+      corpId: platforms.wecom.corpId,
+      agentId: platforms.wecom.agentId,
       // 自建应用 Secret：换 access_token 用（后台"眼睛"图标查看，别点重置）
-      secret: process.env.WECOM_SECRET ?? '',
+      secret: platforms.wecom.secret,
+      baseUrl: platforms.wecom.baseUrl,
     },
   },
 
-  // 邮箱数据源：IMAP 轮询收信 + SMTP 回写。授权码只存服务端。
+  // 邮箱数据源：IMAP 轮询收信 + SMTP 回写。授权码只存服务端。可配任意数量/任意服务商。
   mail: {
-    enabled: bool(process.env.MAIL_ENABLED, false),
+    enabled: mailEnabled,
     pollMs: Math.max(5, Number(process.env.MAIL_POLL_SECONDS ?? 45)) * 1000,
-    accounts: [
-      mailAccount('qq', 'QQ邮箱', { imapHost: 'imap.qq.com', smtpHost: 'smtp.qq.com' }),
-      mailAccount('163', '网易邮箱', { imapHost: 'imap.163.com', smtpHost: 'smtp.163.com' }),
-    ].filter((a): a is MailAccount => a !== null),
+    accounts: mailParsed.accounts,
+    issues: mailParsed.issues,
   },
+
+  /** 每个平台解析后的真实运行画像（policy/mode/canSend/canReceive/missing/warnings/reason） */
+  runtime,
+
+  /** 全局模式配置警告（旧 MOCK、非法值等），启动时打印一次 */
+  modeWarnings,
 };
+
+// ---------------------------------------------------------------------------
+// 运行模式访问器
+// ---------------------------------------------------------------------------
+
+/** 该平台本次实际走哪条通道（real / mock） */
+export function modeOf(platform: Platform): DeliveryMode {
+  return config.runtime[platform].mode;
+}
+
+/** 该平台的完整运行画像（只读语义） */
+export function runtimeOf(platform: Platform): PlatformRuntime {
+  return config.runtime[platform];
+}
+
+/**
+ * 显式强制某平台通道（单测 / doctor 模拟用）。
+ * real 时同步补足能力标记，避免"能力守卫"把测试挡在门外。
+ */
+export function forceMode(platform: Platform, mode: DeliveryMode): void {
+  const r = config.runtime[platform];
+  r.mode = mode;
+  r.policy = mode;
+  if (mode === 'real') {
+    r.canSend = true;
+    r.canReceive = true;
+  }
+}
+
+/** 全部平台强制同一通道（单测 before/after 用） */
+export function forceAllModes(mode: DeliveryMode): void {
+  for (const platform of Object.values(Platform)) forceMode(platform, mode);
+}
+
+/** 从当前凭据重新计算运行时画像（测试里改完 config.platforms 后可刷新） */
+export function refreshRuntime(): void {
+  const built = buildPlatformRuntime({
+    env: process.env,
+    platforms: {
+      feishu: config.platforms.feishu,
+      dingtalk: { ...config.platforms.dingtalk, stream: config.dingtalkStream },
+      wecom: config.platforms.wecom,
+    },
+    mailAccounts: config.mail.accounts,
+    mailIssues: config.mail.issues,
+    mailEnabled: config.mail.enabled,
+    underTest,
+  });
+  Object.assign(config.runtime, built);
+}
+
+/** 启动/doctor 用的一行式模式摘要 */
+export function modeSummary(): string {
+  return Object.values(Platform)
+    .map((p) => `${config.runtime[p].label}=${config.runtime[p].mode}${config.runtime[p].policy !== 'auto' ? `(${config.runtime[p].policy})` : ''}`)
+    .join(' ');
+}

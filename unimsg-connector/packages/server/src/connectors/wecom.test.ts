@@ -8,7 +8,7 @@ import http from 'node:http';
 import { createDecipheriv } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import { Platform, MsgStatus } from '@unimsg/shared';
-import { config } from '../config';
+import { config, forceMode } from '../config';
 import { createApp } from '../app';
 import { InMemoryRepository } from '../db/repository';
 import { connectors } from './registry';
@@ -23,14 +23,13 @@ import { resetTokenCache } from './real';
 
 const TOKEN = 'wecom_token_test';
 const AES_KEY = 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY'; // 43 位，解出 32 字节
-const CORP_ID = 'ww50b121ddd82a2350';
+const CORP_ID = 'ww0123456789abcdef';
 const OTHER_CORP = 'ww0000000000000000';
 const AGENT_ID = '1000002';
 const SECRET = 'wecom_secret_test';
 const NONCE = 'nonce-1700000000';
 
 const origFetch = globalThis.fetch;
-const origMock = config.mock;
 
 /** 内层明文：企微真实推送的字段都在这一层 */
 const INNER_XML = [
@@ -89,7 +88,7 @@ let server: http.Server;
 let base = '';
 
 before(async () => {
-  config.mock = false;
+  forceMode(Platform.WECOM, 'real');
   // 富化环节锁死本地 Mock，保证单测不外呼
   config.llm.provider = 'mock';
   config.ocr.provider = 'mock';
@@ -106,7 +105,7 @@ before(async () => {
 
 after(() => {
   globalThis.fetch = origFetch;
-  config.mock = origMock;
+  forceMode(Platform.WECOM, 'mock');
   resetTokenCache();
   server.close();
 });

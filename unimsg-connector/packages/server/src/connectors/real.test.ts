@@ -5,14 +5,13 @@
 import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { Platform, MsgStatus } from '@unimsg/shared';
-import { config } from '../config';
+import { config, forceAllModes } from '../config';
 import { feishuConnector } from './feishu';
 import { dingtalkConnector } from './dingtalk';
 import { feishuEncrypt, dingtalkEncrypt, dingtalkSign } from './crypto';
 import { resetTokenCache } from './real';
 
 const origFetch = globalThis.fetch;
-const origMock = config.mock;
 
 interface Call {
   url: string;
@@ -33,7 +32,7 @@ function stubFetch(replies: unknown[]): Call[] {
 }
 
 before(() => {
-  config.mock = false;
+  forceAllModes('real');
   config.platforms.feishu.appId = 'cli_test';
   config.platforms.feishu.appSecret = 'secret_test';
   config.platforms.feishu.verifyToken = 'verify_test';
@@ -47,7 +46,7 @@ before(() => {
 
 after(() => {
   globalThis.fetch = origFetch;
-  config.mock = origMock;
+  forceAllModes('mock');
   resetTokenCache();
 });
 
