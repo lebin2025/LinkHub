@@ -31,6 +31,12 @@ export interface Sender {
   id: string;
 }
 
+/** 会话（真实回写必须知道发回哪里） */
+export interface Conversation {
+  id: string;
+  type: 'group' | 'p2p';
+}
+
 /**
  * 统一消息标准格式：外部平台的事件无论长什么样，
  * 经适配器 convert 后都收敛成这一种结构，后端只认这一种。
@@ -40,6 +46,7 @@ export interface UnifiedMessage {
   platform: Platform;
   externalId: string; // 平台侧原始消息 ID
   sender: Sender;
+  conversation?: Conversation; // 消息所属会话（群/单聊），真实回写使用
   type: MsgType;
   body: string;
   intent?: string; // 大模型识别的意图
@@ -60,11 +67,15 @@ export interface UnifiedMessage {
  */
 export interface PlatformConnector {
   /** 回调验签：校验平台推过来的事件确实来自该平台（防伪造） */
-  verify(payload: unknown, sig: string): boolean;
+  verify(payload: unknown, sig: string, headers?: Record<string, string | string[] | undefined>): boolean;
+  /** 解密加密回调；不需要解密时返回原样 */
+  decrypt?(payload: unknown): unknown;
+  /** URL 验证握手：需要原样返回 challenge 时实现 */
+  challenge?(payload: unknown): unknown | undefined;
   /** 外部事件 → 统一消息 */
   receive(raw: unknown): UnifiedMessage;
   /** 统一消息 → 平台（真实发送 / Mock 模拟发送） */
-  send(msg: UnifiedMessage): Promise<{ ok: boolean }>;
+  send(msg: UnifiedMessage): Promise<{ ok: boolean; platformReply?: string }>;
   /** 统一消息 → 平台外部格式（回写前的格式转换） */
   convert(msg: UnifiedMessage): unknown;
 }

@@ -10,6 +10,14 @@
  * 把 MOCK 改为 false 并填写对应 *_API_KEY 即可无缝切换到真接口。
  */
 import 'dotenv/config';
+import { config as loadEnv } from 'dotenv';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// pnpm --filter 会把 cwd 切到 packages/server，这里显式补加载 monorepo 根目录的 .env
+const here = dirname(fileURLToPath(import.meta.url));
+loadEnv({ path: resolve(here, '../../../.env') });
+loadEnv({ path: resolve(process.cwd(), '.env') });
 
 export type LlmProvider = 'mock' | 'wenxin' | 'qwen';
 export type OcrProvider = 'mock' | 'tencent';
@@ -61,8 +69,11 @@ export const config = {
       encryptKey: process.env.FEISHU_ENCRYPT_KEY ?? '',
     },
     dingtalk: {
-      appKey: process.env.DINGTALK_APP_KEY ?? '',
-      appSecret: process.env.DINGTALK_APP_SECRET ?? '',
+      // 新版后台叫 Client ID / Client Secret，旧版叫 AppKey / AppSecret
+      appKey: process.env.DINGTALK_CLIENT_ID ?? process.env.DINGTALK_APP_KEY ?? '',
+      appSecret: process.env.DINGTALK_CLIENT_SECRET ?? process.env.DINGTALK_APP_SECRET ?? '',
+      // 机器人编码：企业内部应用通常与 Client ID 相同
+      robotCode: process.env.DINGTALK_ROBOT_CODE ?? process.env.DINGTALK_CLIENT_ID ?? process.env.DINGTALK_APP_KEY ?? '',
       aesToken: process.env.DINGTALK_AES_TOKEN ?? '',
       aesKey: process.env.DINGTALK_AES_KEY ?? '',
     },

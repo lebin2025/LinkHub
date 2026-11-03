@@ -8,24 +8,24 @@
 
 | 模块 | 状态 |
 |---|---|
-| 共享消息契约（`shared/message.ts`） | ✅ 完成 |
-| 三平台适配器（飞书 / 钉钉 / 企业微信） | ✅ 字段映射与 Mock 收发完成；真实验签 / 发送为 TODO |
+| 共享消息契约（`shared/message.ts`） | ✅ 完成（含回写所需的 `conversation`） |
+| 三平台适配器（飞书 / 钉钉 / 企业微信） | ✅ 飞书、钉钉真实接入已实现；企微仍为 Mock |
 | 消息中枢：状态机 / 幂等 / 异步回写 / 回流 | ✅ 完成 |
 | 安全：Bearer 鉴权 + WebSocket 握手校验 | ✅ 完成 |
 | 闭环日志（traceId 全链路可回放） | ✅ 完成 |
 | 边界降级：限流退避、OCR 置信度、意图失败回退、DLQ | ✅ 完成 |
-| 单元测试 / 端到端冒烟 | ✅ 12 条单测 / 15 项冒烟全部通过（2026-11-02 实测） |
-| 真实平台 API 接入 | 🚧 未实现：`MOCK=false` 时验签恒失败、发送直接抛错 |
+| 单元测试 / 端到端冒烟 | ✅ 22 条单测 / 15 项冒烟全部通过（2026-11-03 实测） |
+| 真实平台 API 接入 | 🟡 飞书 / 钉钉适配器完成；飞书 token 被租户策略拦截（21001），钉钉 token 实测可用 |
 | 大模型 / OCR 真实调用 | 🚧 未实现：当前按关键词规则 Mock |
 | PostgreSQL / Redis 实装 | 🚧 仅有 DDL 与仓储接口，实际始终走内存 |
 | 前端统一入口 | ✅ Mock 数据版完成：收件箱 / 待办 / 全链路回放 / 平台账号，16 条前端测试通过 |
 
 ## 功能特性（对应业务闭环五要素）
 
-- **接收**：三平台 Webhook 统一接入。Mock 下签名带 `mock` 或 `dev*` 前缀即通过；缺省签名也按 `mock` 处理（仅适合本地演示）。
+- **接收**：三平台 Webhook 统一接入。真实模式下飞书校验事件头里的 verification token（配置 Encrypt Key 时先 AES 解密），钉钉校验 `timestamp + HMAC` 签名并 AES 解密；Mock 下签名带 `mock` 或 `dev*` 前缀即通过。
 - **展示**：REST 列表 + WebSocket 实时推送，按平台/状态筛选。
 - **处理**：直接回复、标记完成；规则 Mock 给出意图与回复草稿（真实大模型调用尚未接入）。
-- **回写**：按目标平台格式转换后发送；异步执行，结果经 WS 推送（当前发送为 Mock）。
+- **回写**：按目标平台格式转换后发送；异步执行，结果经 WS 推送。飞书走 `im/v1/messages`（tenant_access_token 缓存），钉钉走机器人 `groupMessages/send` / `oToMessages/batchSend`（accessToken 缓存），企业微信仍为 Mock。
 - **回流**：平台状态事件经 Webhook 回流，`syncStatus` 更新本地并留痕，支持按 `traceId` 或 `externalId` 定位消息。
 
 ### 状态机
@@ -47,6 +47,7 @@ received → processing → replied → sent → synced
 - 运行时：Node.js ≥ 20（本机实测 24.14.0）、TypeScript 5.6
 - 框架：Express 4、ws（WebSocket）
 - 前端：React 18 + Vite 5 + TypeScript + Ant Design 5（当前 Mock 数据，接口形状已与后端契约对齐）
+- 真实接入：飞书 / 钉钉适配器使用 Node 内置 `fetch` + 进程内 token 缓存，无第三方 SDK
 - 仓储：内存实现（当前唯一实现）；PostgreSQL 仅有 `001_init.sql` 与仓储接口，尚无 PgRepository；Redis 未接入
 - 智能：LLM / OCR 均为规则 Mock；文心 / 通义 / 腾讯云 OCR 只保留配置项，真实调用未实现
 
@@ -62,7 +63,7 @@ LinkHub/
     ├── packages/shared/src/message.ts      # 前后端共享契约
     ├── packages/web/                       # 前端（React + AntD · Mock 数据版）
     ├── packages/server/src/
-    │   ├── connectors/        # 飞书 / 钉钉 / 企微 适配器
+    │   ├── connectors/        # 飞书 / 钉钉 / 企微 适配器（crypto / real 为真实接入工具）
     │   ├── core/              # 闭环日志 / 幂等 / 指标
     │   ├── services/          # 消息中枢 / 回流 / LLM / OCR / 限流
     │   ├── routes/            # health / webhook / messages
@@ -116,7 +117,7 @@ pnpm e2e
 | `pnpm dev` | 开发模式（tsx watch） |
 | `pnpm start` | 启动服务（:3001） |
 | `pnpm typecheck` | TypeScript 类型检查（shared + server） |
-| `pnpm test` | 单元测试（12 条） |
+| `pnpm test` | 单元测试（22 条） |
 | `pnpm e2e` | 一键端到端冒烟（Windows PowerShell） |
 | `pnpm e2e:sh` | 一键端到端冒烟（macOS / Linux / Git Bash） |
 | `pnpm --filter @unimsg/web dev` | 前端开发模式（:5173，Mock 数据） |
@@ -142,30 +143,52 @@ pnpm e2e
 
 ## 配置说明
 
-复制 `unimsg-connector/.env.example` 为 `.env` 后按需填写（`API_TOKEN`、`OCR_CONFIDENCE_THRESHOLD`、`SEND_MAX_RETRY` 等未内置在模板里，需要时自行追加）：
+复制 `unimsg-connector/.env.example` 为 `unimsg-connector/.env`（服务会自动从 monorepo 根目录加载）后按需填写：
 
 | 变量 | 说明 |
 |---|---|
-| `MOCK` | 当前只支持 `true`（默认）。置 `false` 后 Webhook 验签恒失败（401）、发送抛错并写 DLQ——真实适配器尚未实现 |
+| `MOCK` | `true`（默认）= 全部 Mock；`false` = 飞书 / 钉钉走真实接口（企微仍 Mock） |
 | `API_TOKEN` | 入口鉴权令牌（默认 `dev-token`，生产务必修改） |
 | `DATABASE_URL` / `REDIS_URL` | 预留项：不影响存储实现；填 `DATABASE_URL` 只会让启动日志显示 `postgres(未启用·当前内存)` |
 | `LLM_PROVIDER` / `LLM_API_KEY` | 预留：真实调用未实现，始终走 Mock |
 | `OCR_PROVIDER` / `OCR_API_KEY` | 预留：真实调用未实现，始终走 Mock |
 | `OCR_CONFIDENCE_THRESHOLD` | OCR 置信度阈值，默认 `0.7` |
 | `SEND_MAX_RETRY` | 发送最大重试次数，默认 `3` |
-| `RETRY_BASE_MS` / `LLM_TIMEOUT_MS` | 重试退避基数（默认 1000ms）/ LLM 超时（默认 8000ms，仅真实调用使用） |
+| `RETRY_BASE_MS` / `LLM_TIMEOUT_MS` | 重试退避基数（默认 1000ms）/ 真实 API 与 LLM 超时（默认 8000ms） |
 | `SERVER_PORT` | 服务端口，默认 `3001` |
-| `FEISHU_*` / `DINGTALK_*` / `WECOM_*` | 各平台凭据（仅服务端；真实接入未实现） |
+| `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | 飞书自建应用凭证 |
+| `FEISHU_VERIFY_TOKEN` / `FEISHU_ENCRYPT_KEY` | 事件订阅的 verification token / encrypt key（加密策略页） |
+| `DINGTALK_CLIENT_ID` / `DINGTALK_CLIENT_SECRET` | 钉钉应用凭证（旧版字段 `DINGTALK_APP_KEY` / `_APP_SECRET` 仍兼容） |
+| `DINGTALK_ROBOT_CODE` | 机器人编码，企业内部应用通常等于 Client ID |
+| `DINGTALK_AES_TOKEN` / `DINGTALK_AES_KEY` | 钉钉 HTTP 回调的 Token / 加密密钥 |
+| `WECOM_*` | 企微凭据（真实接入未实现） |
+
+## 真实接入配置（回调）
+
+平台要把事件推到后端，需要公网可达的 HTTPS 地址：
+
+1. 飞书：事件与回调 → 事件配置 → 订阅方式选「将事件发送至开发者服务器」，请求地址填 `https://<域名>/api/webhook/feishu`；添加事件 `im.message.receive_v1`。加密策略页把 Encrypt Key 与 Verification Token 填进 `.env`。服务会对 `url_verification` 自动回传 challenge。
+2. 钉钉：事件订阅 → 推送方式选「HTTP 推送」，地址填 `https://<域名>/api/webhook/dingtalk`；把页面上的 Token / AES Key 填进 `DINGTALK_AES_TOKEN` / `DINGTALK_AES_KEY`。后端会校验 `timestamp + sign` 并解密 `encrypt`。
+3. 两边都要在版本管理与发布里发布版本，权限与事件才会生效；飞书可在「测试企业和人员」里先加测试成员。
+4. 没有公网域名时，钉钉也可以改用 Stream 模式（控制台已标注推荐，无需回调地址），但需要额外接入 `dingtalk-stream` SDK，本项目当前走 HTTP。
+
+> 反向代理场景下把 `https://<域名>/api` 整体转到 `127.0.0.1:3001` 即可，路由本身不依赖前缀。
 
 ## 测试与验证
 
-实测环境：Windows 11、Git Bash、Node 24.14.0、pnpm 9.15.9（corepack）、Python 3.12.10，2026-11-02。
+实测环境：Windows 11、Git Bash、Node 24.14.0、pnpm 9.15.9（corepack）、Python 3.12.10。
 
 - `pnpm typecheck`：`shared` 与 `server` 双包检查通过。
-- `pnpm test`：12 条单测全绿（连接器 5 + 主链路 4 + 边界降级 3），耗时约 0.4s。
+- `pnpm test`：22 条单测全绿（连接器 5 + 主链路 4 + 边界降级 3 + 真实适配器 10），耗时约 0.3s。
 - `pnpm e2e`（PowerShell，默认 3001）：15 项断言全部 PASS，`SMOKE OK`。
 - `pnpm e2e:sh`（Git Bash，3121 端口）：15 项断言全部 PASS，`SMOKE OK`。
 - `pnpm dev` / `pnpm start`：均能正常监听并通过 `/api/health`。
+
+真实凭据联调（2026-11-03）：
+
+- 钉钉：`POST /v1.0/oauth2/accessToken` 用真实 Client ID/Secret 换取 accessToken 成功。
+- 飞书：`POST /auth/v3/tenant_access_token/internal` 返回 `21001 Access denied due to platform policy`（应用已发布、已启用，属租户级策略限制；需要企业认证/符合条件的租户才能换取 token）。
+- 真实发送依赖入站消息带来的 `conversation.id`，需先配好回调并收到一条消息；当前无公网域名，未做端到端真实收发。
 
 15 项冒烟覆盖：健康检查、三平台接入、幂等去重、鉴权 401、异步回复、`synced` 状态、trace 五个事件、计数一致性。截图见 `test.photos/`。
 
@@ -180,14 +203,18 @@ pnpm e2e
 - 异步回写：`reply` 返回 202 + `taskId`，后台完成后状态为 `synced`。
 - 回流：状态事件经 Webhook 按 `traceId` / `externalId` 均能把状态改为目标值并写入 `sync` 日志。
 - 边界：空文本回复 400；不存在的消息 404；30 条突发 Webhook 全部 200（令牌桶只在发送路径生效，符合设计）。
+- 加解密 / 发送形状：用本地构造的真实算法密文验证飞书与钉钉解密与签名；打桩 `fetch` 断言 token 请求与发送请求的 URL、字段、鉴权头。
 
 ## 已知限制
 
-- 真实平台验签/发送、真实大模型/OCR、PostgreSQL/Redis 都尚未实现，`MOCK=false` 会让链路直接断掉。
+- 飞书 `tenant_access_token` 被租户策略拦截（21001），真实收发暂不可用；钉钉 token 可用，但真实收发仍需公网回调与入站消息。
+- 飞书事件订阅 / 钉钉 HTTP 回调都还没配（缺公网域名）；钉钉亦可改 Stream 模式。
+- 飞书权限里 `im:message`（获取与发送单聊、群组消息）尚未开通，只有 `im:message:send_as_bot`。
 - 前端当前使用内存 Mock 数据，尚未接入后端 REST/WS；接入方案见 `packages/web/README.md`。
+- 真实大模型/OCR、PostgreSQL/Redis 尚未实现。
 - `scripts/e2e.sh` 写死 `python3`，Windows 上可能撞到微软商店占位符（退出码 49）。
 - Webhook 缺少 body 校验：空 payload 会被接收，`externalId` 退化为 `unknown`，之后的空 payload 全部按重复处理。
-- 不带签名头时按 `mock` 放行，仅适合本地演示；`dev*` 前缀签名同样放行。
+- Mock 下不带签名头时按 `mock` 放行，仅适合本地演示；`dev*` 前缀签名同样放行。
 - 所有消息、闭环日志、DLQ 都在内存里，进程重启即清空。
 - 仓库里误提交了一个空的 `scripts/e2e-server.log.err`，可删除并把 `*.log.err` 加进 `.gitignore`。
 
@@ -198,11 +225,12 @@ pnpm e2e
 
 ## 后续计划
 
-1. 补齐三平台真实验签（含钉钉 AES 解密）与发送适配器，再切换 `MOCK=false`。
-2. 实现 `PgRepository` 与 Redis（限流 / token 缓存），替换内存实现。
-3. 接入真实大模型（文心 / 通义）与腾讯云 OCR，补齐超时与失败回退。
-4. 完成 React + AntD 统一入口，对接 REST / WebSocket。
-5. `server` 增加入参 schema 校验；`e2e.sh` 自动探测 `python` / `python3`；清理 `scripts/e2e-server.log.err`；补 CI（typecheck + test + e2e）。
+1. 有公网域名后配置两边回调（飞书事件订阅 / 钉钉 HTTP 推送），补齐飞书 `im:message` 权限，跑通真实入站与回写。
+2. 解决飞书租户 21001（企业认证或换用符合策略的租户）。
+3. 实现 `PgRepository` 与 Redis（限流 / token 缓存），替换内存实现。
+4. 接入真实大模型（文心 / 通义）与腾讯云 OCR，补齐超时与失败回退。
+5. 完成 React + AntD 统一入口，对接 REST / WebSocket。
+6. `server` 增加入参 schema 校验；`e2e.sh` 自动探测 `python` / `python3`；清理 `scripts/e2e-server.log.err`；补 CI（typecheck + test + e2e）。
 
 ## License
 

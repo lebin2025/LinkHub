@@ -16,14 +16,30 @@ export function webhookRouter(svc: MessageService) {
       res.status(404).json({ ok: false, error: 'unknown platform' });
       return;
     }
+
+    let body: unknown = req.body;
+    try {
+      if (connector.decrypt) body = connector.decrypt(body);
+    } catch (e) {
+      res.status(400).json({ ok: false, error: e instanceof Error ? e.message : 'decrypt failed' });
+      return;
+    }
+
+    // 飞书配置回调地址时会发 url_verification，需要原样返回 challenge
+    const handshake = connector.challenge?.(body);
+    if (handshake !== undefined) {
+      res.json(handshake);
+      return;
+    }
+
     const sig = (req.headers['x-signature'] as string)
       ?? (typeof req.query.sig === 'string' ? req.query.sig : 'mock');
-    if (!connector.verify(req.body, sig)) {
+    if (!connector.verify(body, sig, req.headers)) {
       res.status(401).json({ ok: false, error: 'verify failed' });
       return;
     }
     try {
-      const result = await svc.onPlatformEvent(platform, req.body);
+      const result = await svc.onPlatformEvent(platform, body);
       // 企微回调要求返回明文 success，否则会重试
       if (platform === Platform.WECOM) {
         res.type('text/plain').send('success');
