@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { App as AntApp, Avatar, Dropdown, Input, Segmented, Tooltip } from 'antd';
+import { Alert, App as AntApp, Avatar, Dropdown, Input, Segmented, Tooltip } from 'antd';
 import type { MenuProps } from 'antd';
 import {
   ApiOutlined,
@@ -86,7 +86,7 @@ export function AppShell() {
             ]}
           />
 
-          <Tooltip title="WebSocket 实时连接状态（Mock 模式下为模拟连接）">
+          <Tooltip title={state.demoMode ? '实时推送状态（Mock 模拟连接）' : 'WebSocket 实时连接状态'}>
             <span>
               <ConnectionDot status={state.connection} />
             </span>
@@ -130,12 +130,25 @@ export function AppShell() {
           </nav>
 
           <div className="side-foot">
-            <div className="side-foot__badge">Mock 数据</div>
-            <div className="side-foot__text">前端联调版本 · 未接后端</div>
+            <div className="side-foot__badge">{state.demoMode ? 'Mock 数据' : '真实后端'}</div>
+            <div className="side-foot__text">
+              {state.demoMode ? '前端演示模式 · 未接后端' : '已接入 LinkHub Server'}
+            </div>
           </div>
         </aside>
 
         <main className="app-main">
+          {state.error && (
+            <Alert
+              style={{ margin: '12px 20px 0' }}
+              type="error"
+              showIcon
+              closable
+              message="数据加载异常"
+              description={state.error}
+              onClose={() => store.dismissError()}
+            />
+          )}
           <Outlet />
         </main>
       </div>

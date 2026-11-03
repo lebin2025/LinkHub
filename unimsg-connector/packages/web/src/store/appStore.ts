@@ -79,7 +79,14 @@ export class AppStore {
   constructor(
     private api: MessageApi,
     private realtime: RealtimeClient,
-  ) {}
+  ) {
+    // demoMode 由数据源自动派生：接真实后端后，演示入口与 Mock 标识自动隐藏
+    this.state = {
+      ...this.state,
+      demoMode: isDemoApi(api),
+      connection: realtime.getStatus(),
+    };
+  }
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -90,7 +97,14 @@ export class AppStore {
 
   async init(): Promise<void> {
     if (this.state.initialized) return;
-    this.offStatus = this.realtime.subscribeStatus((connection) => this.set({ connection }));
+    this.offStatus = this.realtime.subscribeStatus((connection) => {
+      const prev = this.state.connection;
+      this.set({ connection });
+      // 断线重连成功后静默重拉，补齐重连期间错过的推送（启动首连同理，幂等）
+      if (connection === 'connected' && (prev === 'reconnecting' || prev === 'offline')) {
+        void this.reload();
+      }
+    });
     this.offRealtime = this.realtime.subscribe((event) => this.onRealtime(event));
     this.set({ initialized: true });
 
@@ -110,6 +124,10 @@ export class AppStore {
     this.offRealtime?.();
     this.offStatus?.();
     this.realtime.close();
+    // 可重入：卸载后若再次 init，能重新订阅（配合 init 的 initialized 守卫）
+    this.offRealtime = undefined;
+    this.offStatus = undefined;
+    this.set({ initialized: false });
   }
 
   setFilters(patch: Partial<Filters>): void {
@@ -125,7 +143,10 @@ export class AppStore {
   }
 
   async reply(id: string, text: string): Promise<void> {
-    await this.api.reply(id, text);
+    const ack = await this.api.reply(id, text);
+    // 202 回执兜底：WS 丢包时也能把回复内容与 replied 状态落地。
+    // 只补字段、不把状态往回拽（HTTP 202 可能晚于 WS 的 sent/synced 推送）。
+    this.upsertReply(ack.message);
     await this.refreshHealth();
   }
 
@@ -156,11 +177,44 @@ export class AppStore {
     }
   }
 
+  /** 静默重拉全量数据（断线重连后的状态兜底；失败则保持现有数据） */
+  private async reload(): Promise<void> {
+    try {
+      const [messages, accounts, health] = await Promise.all([
+        this.api.list(),
+        this.api.accounts(),
+        this.api.health(),
+      ]);
+      this.set({ messages, accounts, health });
+    } catch {
+      // 静默失败：保持现有数据，等待下一次实时推送
+    }
+  }
+
   private onRealtime(event: { type: string; data?: UnifiedMessage }): void {
     if (!event.data) return;
     if (event.type === 'message.received' || event.type === 'message.updated' || event.type === 'message.failed') {
       this.upsert(event.data);
     }
+  }
+
+  /** 合并 202 回执：本地已推进到 sent/synced 时保留本地状态，避免乱序回退 */
+  private upsertReply(incoming: UnifiedMessage): void {
+    if (!incoming?.traceId) return;
+    const cur = this.state.messages.find((m) => m.traceId === incoming.traceId);
+    if (!cur) {
+      this.upsert(incoming);
+      return;
+    }
+    const keepLocalStatus = cur.status === MsgStatus.SENT || cur.status === MsgStatus.SYNCED;
+    this.upsert({
+      ...cur,
+      reply: incoming.reply ?? cur.reply,
+      intent: incoming.intent ?? cur.intent,
+      replyDraft: incoming.replyDraft ?? cur.replyDraft,
+      updatedAt: incoming.updatedAt ?? cur.updatedAt,
+      status: keepLocalStatus ? cur.status : incoming.status,
+    });
   }
 
   private upsert(message: UnifiedMessage): void {

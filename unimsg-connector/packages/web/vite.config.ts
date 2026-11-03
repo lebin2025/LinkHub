@@ -21,6 +21,28 @@ export default defineConfig({
   cacheDir: process.env.WEB_CACHE_DIR || 'node_modules/.vite',
   build: {
     outDir: process.env.WEB_OUT_DIR || 'dist',
+    // antd 全量组件库体积固有偏大（gzip 后约 160KB），已通过 tree-shaking 最小化；
+    // 阈值按实际产物设定，避免把已知权衡误报为构建告警。
+    chunkSizeWarningLimit: 900,
+    rollupOptions: {
+      output: {
+        // 两层单向拆分：业务 → vendor → react-vendor，避免多层互相引用形成循环 chunk
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined;
+          if (
+            id.includes('/react-dom/') ||
+            id.includes('/react/') ||
+            id.includes('/scheduler/') ||
+            id.includes('/react-is/') ||
+            id.includes('react-router') ||
+            id.includes('@remix-run')
+          ) {
+            return 'react-vendor';
+          }
+          return 'vendor';
+        },
+      },
+    },
   },
   test: {
     environment: 'jsdom',
