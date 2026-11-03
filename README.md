@@ -18,7 +18,7 @@
 | 真实平台 API 接入 | 🚧 未实现：`MOCK=false` 时验签恒失败、发送直接抛错 |
 | 大模型 / OCR 真实调用 | 🚧 未实现：当前按关键词规则 Mock |
 | PostgreSQL / Redis 实装 | 🚧 仅有 DDL 与仓储接口，实际始终走内存 |
-| 前端统一入口 | 🚧 成员 B 负责 |
+| 前端统一入口 | ✅ Mock 数据版完成：收件箱 / 待办 / 全链路回放 / 平台账号，16 条前端测试通过 |
 
 ## 功能特性（对应业务闭环五要素）
 
@@ -46,6 +46,7 @@ received → processing → replied → sent → synced
 
 - 运行时：Node.js ≥ 20（本机实测 24.14.0）、TypeScript 5.6
 - 框架：Express 4、ws（WebSocket）
+- 前端：React 18 + Vite 5 + TypeScript + Ant Design 5（当前 Mock 数据，接口形状已与后端契约对齐）
 - 仓储：内存实现（当前唯一实现）；PostgreSQL 仅有 `001_init.sql` 与仓储接口，尚无 PgRepository；Redis 未接入
 - 智能：LLM / OCR 均为规则 Mock；文心 / 通义 / 腾讯云 OCR 只保留配置项，真实调用未实现
 
@@ -59,6 +60,7 @@ LinkHub/
 ├── test.photos/               # 端到端冒烟截图
 └── unimsg-connector/          # 后端源码（pnpm monorepo）
     ├── packages/shared/src/message.ts      # 前后端共享契约
+    ├── packages/web/                       # 前端（React + AntD · Mock 数据版）
     ├── packages/server/src/
     │   ├── connectors/        # 飞书 / 钉钉 / 企微 适配器
     │   ├── core/              # 闭环日志 / 幂等 / 指标
@@ -89,6 +91,12 @@ pnpm install
 pnpm --filter @unimsg/server start
 ```
 
+启动前端（默认 `http://127.0.0.1:5173`，内置 Mock 数据，不依赖后端）：
+
+```bash
+pnpm --filter @unimsg/web dev
+```
+
 另开一个终端，跑一键端到端（自动起服务 → 等待就绪 → 冒烟 → 自动关闭）：
 
 ```bash
@@ -111,6 +119,8 @@ pnpm e2e
 | `pnpm test` | 单元测试（12 条） |
 | `pnpm e2e` | 一键端到端冒烟（Windows PowerShell） |
 | `pnpm e2e:sh` | 一键端到端冒烟（macOS / Linux / Git Bash） |
+| `pnpm --filter @unimsg/web dev` | 前端开发模式（:5173，Mock 数据） |
+| `pnpm --filter @unimsg/web test` | 前端单元测试（16 条） |
 
 `e2e` / `e2e:sh` 都可直接追加端口参数，例如 `pnpm e2e -Port 3102`、`pnpm e2e:sh 3102`。
 
@@ -159,6 +169,8 @@ pnpm e2e
 
 15 项冒烟覆盖：健康检查、三平台接入、幂等去重、鉴权 401、异步回复、`synced` 状态、trace 五个事件、计数一致性。截图见 `test.photos/`。
 
+前端（`packages/web`）当前为 Mock 数据版，已通过 `tsc --noEmit`、`vite build` 与 16 条 Vitest 用例；覆盖列表/筛选、回复状态机、标记完成、全链路日志、实时事件与卡片交互。接口形状对齐 `API对接说明.md`，接后端时只需替换 `src/store/index.ts` 的数据源装配。
+
 冒烟之外的补充手工验证：
 
 - `/api/accounts`：无 token / 错 token 返回 401，Bearer 与 `?token=` 均 200，只返回 `configured` 布尔值。
@@ -172,6 +184,7 @@ pnpm e2e
 ## 已知限制
 
 - 真实平台验签/发送、真实大模型/OCR、PostgreSQL/Redis 都尚未实现，`MOCK=false` 会让链路直接断掉。
+- 前端当前使用内存 Mock 数据，尚未接入后端 REST/WS；接入方案见 `packages/web/README.md`。
 - `scripts/e2e.sh` 写死 `python3`，Windows 上可能撞到微软商店占位符（退出码 49）。
 - Webhook 缺少 body 校验：空 payload 会被接收，`externalId` 退化为 `unknown`，之后的空 payload 全部按重复处理。
 - 不带签名头时按 `mock` 放行，仅适合本地演示；`dev*` 前缀签名同样放行。
