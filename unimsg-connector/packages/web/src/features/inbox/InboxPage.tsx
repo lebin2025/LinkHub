@@ -30,12 +30,15 @@ export function InboxPage() {
   const visible = useMemo(() => filterMessages(state.messages, state.filters), [state.messages, state.filters]);
   const selected = traceId ? state.messages.find((m) => m.traceId === traceId) : undefined;
 
-  // 首次进入且未选中时，自动打开第一条，保证三栏布局一屏可读
+  // 首次进入且未选中、或 URL 里的 traceId 已不存在时，自动打开最新一条。
+  // 后者常见于「内存存储 + 后端重启 / 消息被清空」：旧 URL 留着旧 traceId，
+  // 列表已有新消息但右侧空白，容易被误读成「消息丢了」。
   useEffect(() => {
-    if (!traceId && visible.length > 0) {
+    if (state.loading || visible.length === 0) return;
+    if (!traceId || !selected) {
       navigate(`/inbox/${visible[0].traceId}`, { replace: true });
     }
-  }, [traceId, visible, navigate]);
+  }, [traceId, selected, visible, state.loading, navigate]);
 
   const hasFilter =
     Boolean(state.filters.status) ||

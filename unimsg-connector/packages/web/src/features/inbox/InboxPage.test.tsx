@@ -5,8 +5,8 @@
  * 以「props/状态驱动」的方式覆盖：真实后端空收件箱 → 显示；Mock 模式 / 有消息 → 不显示。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { render, screen, within } from '@testing-library/react';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { ACCOUNTS } from '../../services/mock/fixtures';
 import { MsgStatus, Platform } from '../../types';
 import type { UnifiedMessage } from '../../types';
@@ -74,10 +74,17 @@ function mockState(patch: Partial<typeof hoisted.state> = {}) {
   };
 }
 
-function renderInboxPage() {
+/**
+ * 必须用 <Routes> 提供真实路由上下文，否则 useParams() 永远拿到 {}：
+ * 「选中某条消息 / 自动跳转」这类用例测不到路由参数。
+ */
+function renderInboxPage(path = '/inbox') {
   return render(
-    <MemoryRouter initialEntries={['/inbox']}>
-      <InboxPage />
+    <MemoryRouter initialEntries={[path]}>
+      <Routes>
+        <Route path="/inbox" element={<InboxPage />} />
+        <Route path="/inbox/:traceId" element={<InboxPage />} />
+      </Routes>
     </MemoryRouter>,
   );
 }
@@ -117,5 +124,23 @@ describe('InboxPage 首启引导接线', () => {
     expect(screen.queryByTestId('first-run-guide')).not.toBeInTheDocument();
     expect(screen.getByText('消息加载失败')).toBeInTheDocument();
     expect(screen.queryByText('还没有收到消息')).not.toBeInTheDocument();
+  });
+
+  it('URL 里的 traceId 已不存在（重启后内存清空）：自动打开最新一条，右侧不再空白', async () => {
+    mockState({ messages: [MESSAGE], accounts: ACCOUNTS });
+    renderInboxPage('/inbox/stale-trace-id-from-before-restart');
+
+    expect(await screen.findByTestId('detail-panel')).toBeInTheDocument();
+    expect(within(screen.getByTestId('detail-panel')).getByText('周五前交周报。')).toBeInTheDocument();
+    expect(screen.queryByText('选择一条消息')).not.toBeInTheDocument();
+  });
+
+  it('URL 里的 traceId 有效：保持用户当前选中的消息，不跳转', async () => {
+    const other: UnifiedMessage = { ...MESSAGE, traceId: 't-inbox-2', body: '另一条消息' };
+    mockState({ messages: [MESSAGE, other], accounts: ACCOUNTS });
+    renderInboxPage('/inbox/t-inbox-1');
+
+    expect(await screen.findByTestId('detail-panel')).toBeInTheDocument();
+    expect(within(screen.getByTestId('detail-panel')).getByText('周五前交周报。')).toBeInTheDocument();
   });
 });

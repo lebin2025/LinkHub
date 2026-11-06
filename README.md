@@ -152,7 +152,7 @@ MAIL_MODE=real
 | 安全：Bearer 鉴权 + WebSocket 握手校验 | ✅ 完成 |
 | 闭环日志（traceId 全链路可回放） | ✅ 完成（Mock 与真实通道分开描述） |
 | 边界降级：限流退避、OCR 置信度、意图失败回退、DLQ | ✅ 完成 |
-| 单元测试 / 端到端冒烟 | ✅ 2026-11-06 实测：server **217** 条、web **74** 条、e2e **20** 项断言、契约自检 **46** 项全绿 |
+| 单元测试 / 端到端冒烟 | ✅ 2026-11-06 实测：server **217** 条、web **76** 条、e2e **20** 项断言、契约自检 **46** 项全绿 |
 | 上手与交付文档 | ✅ [quickstart.md](docs/quickstart.md)（5 分钟上手）/ [demo-script.md](docs/demo-script.md)（演示脚本）/ [delivery-checklist.md](docs/delivery-checklist.md)（交付打包）/ [risk-register.md](docs/risk-register.md)（风险台账）；README 顶部有「30 秒选路径」 |
 | 健壮性加固（本轮） | ✅ webhook 空/畸形事件 400 不入库、端口占用中文提示、CORS 白名单、状态回流防倒退、日志脱敏、空 `API_TOKEN` 不关鉴权、邮箱嵌套 MIME/水位持久化/中文目录 |
 | 大模型 / OCR 真实调用 | 🚧 未实现：当前按关键词规则 Mock（配置项已预留） |
@@ -386,7 +386,7 @@ pnpm install
 |---|---|
 | `pnpm typecheck` | `shared` / `server` / `web` 三包检查通过（exit 0） |
 | `pnpm test`（server） | **217 passed / 217**（16 个测试文件：连接器、真实适配器、MIME、IMAP 水位/目录、webhook HTTP 级、app/CORS、doctor 探针/渲染/拼写检查等），约 1–2s |
-| `pnpm test:web` | **74 passed / 74**（11 个测试文件：HttpApi / WsRealtime / AppStore / MockApi / AccountsPage / FirstRunGuide / footerState / InboxPage / MessageCard / ReplyComposer / format） |
+| `pnpm test:web` | **76 passed / 76**（11 个测试文件：HttpApi / WsRealtime / AppStore / MockApi / AccountsPage / FirstRunGuide / footerState / InboxPage / MessageCard / ReplyComposer / format） |
 | `pnpm e2e`（Windows PowerShell，默认 3001） | **20 项断言全部 PASS + `SMOKE OK`**，exit 0（约 10s）；强制四平台 `mock`，完全离线 |
 | `pnpm e2e:sh`（Git Bash，3123 端口） | 同上，**20 项 PASS + `SMOKE OK`**（CI 使用此命令） |
 | 契约自检（后端起 mock 后） | `node packages/web/scripts/verify-contract.mjs http://127.0.0.1:3001 dev-token` → **46 PASS / 0 FAIL**（含 `modes` / `sentMock` / `mode`+`policy` / 邮箱账号明细 / `delivery` / WS 握手） |
