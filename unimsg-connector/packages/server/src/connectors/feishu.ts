@@ -11,7 +11,7 @@ import {
   Platform, MsgStatus, UnifiedMessage, PlatformConnector, type SendResult,
 } from '@unimsg/shared';
 import { config } from '../config';
-import { genTraceId, mockSend, verifyMock, inferType, isMock, assertRealSendable } from './base';
+import { genTraceId, mockSend, verifyMock, inferType, inferDueAt, isMock, assertRealSendable } from './base';
 import { feishuDecrypt } from './crypto';
 import { feishuTenantToken, postJson } from './real';
 
@@ -49,6 +49,7 @@ export function receive(raw: unknown): UnifiedMessage {
       : undefined,
     type,
     body: text,
+    dueAt: type === 'todo' ? inferDueAt(text) : undefined,
     status: MsgStatus.RECEIVED,
     createdAt: now,
     updatedAt: now,

@@ -58,8 +58,9 @@ describe('ReplyComposer', () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
-  it('提示中标注目标平台，说明回写按该平台格式转换', () => {
-    setup({ value: '收到' });
-    expect(screen.getByText(/飞书/)).toBeInTheDocument();
+  it('不再渲染「按平台格式转换」这类解释文案，只保留输入区与发送按钮', () => {
+    const { textarea } = setup({ value: '收到' });
+    expect(screen.queryByText(/格式转换/)).not.toBeInTheDocument();
+    expect(textarea.placeholder).toContain('输入回复内容');
   });
 });

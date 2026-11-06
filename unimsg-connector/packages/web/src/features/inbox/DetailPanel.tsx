@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Alert, App as AntApp, Button, Tag, Tooltip } from 'antd';
 import {
@@ -6,6 +6,8 @@ import {
   CheckOutlined,
   CopyOutlined,
   HistoryOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
   SendOutlined,
 } from '@ant-design/icons';
 import { MsgStatus } from '../../types';
@@ -18,10 +20,22 @@ import { StatusBadge } from '../../components/StatusBadge';
 import { AiSuggestion } from './AiSuggestion';
 import { ReplyComposer } from './ReplyComposer';
 import { StatusFlow } from './StatusFlow';
+import { usePreferences } from '../settings/preferences';
 
-export function DetailPanel({ message }: { message: UnifiedMessage }) {
+export function DetailPanel({
+  message,
+  listCollapsed = false,
+  onToggleList,
+}: {
+  message: UnifiedMessage;
+  /** 左侧列表是否已收起（收起后详情占满） */
+  listCollapsed?: boolean;
+  /** 收起 / 展开左侧列表；不传则不渲染切换按钮 */
+  onToggleList?: () => void;
+}) {
   const navigate = useNavigate();
   const { message: toast } = AntApp.useApp();
+  const prefs = usePreferences();
   const [text, setText] = useState(message.replyDraft ?? '');
   const [sending, setSending] = useState(false);
 
@@ -30,16 +44,9 @@ export function DetailPanel({ message }: { message: UnifiedMessage }) {
     setSending(false);
   }, [message.traceId, message.replyDraft]);
 
-  const sentAlready = message.status === MsgStatus.SENT || message.status === MsgStatus.SYNCED;
   const canMarkDone = !message.done;
   // 投递方式：Mock 必须如实标注，不能显示成真实平台已收到
   const delivery = deliveryLabel(message.delivery);
-
-  const replyLabel = useMemo(() => {
-    if (message.status === MsgStatus.FAILED) return '重试发送';
-    if (sentAlready) return '再次回复';
-    return '发送回复';
-  }, [message.status, sentAlready]);
 
   async function handleSend() {
     const content = text.trim();
@@ -76,6 +83,17 @@ export function DetailPanel({ message }: { message: UnifiedMessage }) {
   return (
     <div className="detail" data-testid="detail-panel">
       <header className="detail__head">
+        {onToggleList && (
+          <Tooltip title={listCollapsed ? '展开消息列表' : '收起消息列表'}>
+            <Button
+              className="detail__list-toggle"
+              type="text"
+              icon={listCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              onClick={onToggleList}
+              aria-label={listCollapsed ? '展开消息列表' : '收起消息列表'}
+            />
+          </Tooltip>
+        )}
         <Button
           className="detail__back"
           type="text"
@@ -153,11 +171,13 @@ export function DetailPanel({ message }: { message: UnifiedMessage }) {
           )}
         </section>
 
-        <AiSuggestion
-          message={message}
-          onUseDraft={(draft) => setText(draft)}
-          onRegenerate={() => toast.info('Mock 模式下草稿由关键词规则生成，可手动编辑')}
-        />
+        {prefs.showAiDraft && (
+          <AiSuggestion
+            message={message}
+            onUseDraft={(draft) => setText(draft)}
+            onRegenerate={() => toast.info('草稿由关键词规则生成，可手动编辑')}
+          />
+        )}
 
         <section className="detail__section">
           <div className="section-label">状态流转</div>
@@ -228,7 +248,6 @@ export function DetailPanel({ message }: { message: UnifiedMessage }) {
           onChange={setText}
           onSend={handleSend}
         />
-        <div className="detail__footer-hint">{replyLabel} · 结果会通过 WebSocket 实时推送</div>
       </footer>
     </div>
   );

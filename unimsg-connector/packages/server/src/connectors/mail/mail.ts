@@ -10,7 +10,7 @@ import {
   Platform, MsgStatus, UnifiedMessage, PlatformConnector, type SendResult,
 } from '@unimsg/shared';
 import { config, type MailAccount } from '../../config';
-import { genTraceId, mockSend, verifyMock, inferType, isMock, assertRealSendable } from '../base';
+import { genTraceId, mockSend, verifyMock, inferType, inferDueAt, isMock, assertRealSendable } from '../base';
 import { buildMail, type ParsedMessage } from './mime';
 import { sendMail } from './smtpClient';
 
@@ -49,14 +49,16 @@ export function receive(raw: unknown): UnifiedMessage {
   const now = new Date().toISOString();
   const body = [r.subject, r.text].filter(Boolean).join('\n\n').slice(0, BODY_LIMIT);
   const fromName = r.from.name || r.from.address;
+  const type = inferType(body);
   return {
     traceId: genTraceId(),
     platform: Platform.MAIL,
     externalId: `${r.account}:${r.folder || 'INBOX'}:${r.uid}`,
     sender: { id: r.from.address, name: fromName },
     conversation: { id: r.from.address, type: 'p2p' },
-    type: inferType(body),
+    type,
     body,
+    dueAt: type === 'todo' ? inferDueAt(body) : undefined,
     mailMeta: { account: r.account, inReplyTo: r.messageId, subject: r.subject },
     status: MsgStatus.RECEIVED,
     createdAt: r.date ? new Date(r.date).toISOString() : now,

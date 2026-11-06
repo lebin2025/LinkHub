@@ -64,3 +64,83 @@ export function assertRealSendable(platform: Platform): void {
 export function inferType(body: string): 'todo' | 'text' {
   return /周报|待办|todo|任务|提醒|deadline|截止/i.test(body) ? 'todo' : 'text';
 }
+
+const WEEKDAY: Record<string, number> = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 7, 天: 7 };
+
+/**
+ * 从正文里推测待办截止时间（演示用启发式，不依赖大模型）。
+ *
+ * 支持：今天 / 明天 / 后天、本周X / 下周X / X（周几）、M月D日，外加 HH:MM 或 "9点"（默认 18:00）。
+ * 解析不出来返回 undefined —— 前端会归到"未设置截止"，绝不编一个时间出来。
+ */
+export function inferDueAt(body: string, now: Date = new Date()): string | undefined {
+  if (!body) return undefined;
+
+  let hour = 18;
+  let minute = 0;
+  const hhmm = body.match(/(\d{1,2})\s*[:：]\s*(\d{2})/);
+  const hOnly = body.match(/(\d{1,2})\s*[点时]/);
+  let hasTime = false;
+  if (hhmm) {
+    hour = Math.min(23, Number(hhmm[1]));
+    minute = Math.min(59, Number(hhmm[2]));
+    hasTime = true;
+  } else if (hOnly) {
+    hour = Math.min(23, Number(hOnly[1]));
+    hasTime = true;
+  }
+
+  const shift = (days: number) => {
+    const d = new Date(now);
+    d.setDate(d.getDate() + days);
+    return d;
+  };
+  const withTime = (d: Date) => {
+    const out = new Date(d);
+    out.setHours(hour, minute, 0, 0);
+    return out;
+  };
+
+  // 相对日
+  let target: Date | undefined;
+  if (/今天|今日/.test(body)) target = shift(0);
+  else if (/明天|明日/.test(body)) target = shift(1);
+  else if (/后天/.test(body)) target = shift(2);
+
+  // 周几：本周X 允许落在过去（→ 逾期），下周X 顺延一周，裸"周X"取最近一次
+  if (!target) {
+    const wk = body.match(/(本周|这周|下周|周|星期|礼拜)([一二三四五六日天])/);
+    if (wk) {
+      const prefix = wk[1];
+      const want = WEEKDAY[wk[2]];
+      if (want) {
+        const today = now.getDay() === 0 ? 7 : now.getDay();
+        let delta = want - today;
+        if (prefix === '下周') delta += 7;
+        else if (prefix !== '本周' && prefix !== '这周' && delta < 0) delta += 7;
+        target = shift(delta);
+      }
+    }
+  }
+
+  // M月D日（已过则算明年）
+  if (!target) {
+    const md = body.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]?/);
+    if (md) {
+      const d = new Date(now);
+      d.setMonth(Number(md[1]) - 1, Number(md[2]));
+      if (d.getTime() < now.getTime()) d.setFullYear(d.getFullYear() + 1);
+      target = d;
+    }
+  }
+
+  if (target) return withTime(target).toISOString();
+
+  // 只有时间点：今天，若已过点则顺延到明天
+  if (hasTime) {
+    const today = withTime(now);
+    return (today.getTime() < now.getTime() ? withTime(shift(1)) : today).toISOString();
+  }
+
+  return undefined;
+}

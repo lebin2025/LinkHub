@@ -39,8 +39,8 @@ export function AiSuggestion({
       <footer className="ai-card__actions">
         <Button
           size="small"
-          type="primary"
-          ghost
+          type="default"
+          className="ai-card__use"
           disabled={!message.replyDraft}
           onClick={() => message.replyDraft && onUseDraft(message.replyDraft)}
         >

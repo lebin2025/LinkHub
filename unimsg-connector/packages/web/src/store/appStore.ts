@@ -169,6 +169,11 @@ export class AppStore {
     if (isDemoApi(this.api)) this.api.armNextSendFailure();
   }
 
+  /** 静默重拉全量数据（空态注入、外部写入后手动对齐用；失败保持现状） */
+  async refresh(): Promise<void> {
+    await this.reload();
+  }
+
   async refreshHealth(): Promise<void> {
     try {
       this.set({ health: await this.api.health() });

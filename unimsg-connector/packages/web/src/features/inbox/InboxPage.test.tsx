@@ -1,8 +1,8 @@
 /**
- * InboxPage 接线测试：证明 FirstRunGuide 真的挂在收件箱页顶部，而不是只存在于组件文件里。
+ * InboxPage 接线测试：证明首屏空态接的是「一键注入入口」而不是文档说明。
  *
  * 用 vi.mock 隔离全局 store 单例（真实 store 会创建 WebSocket），
- * 以「props/状态驱动」的方式覆盖：真实后端空收件箱 → 显示；Mock 模式 / 有消息 → 不显示。
+ * 以「状态驱动」的方式覆盖：真实后端空收件箱 → 显示 QuickStart；Mock 模式 / 有消息 / 加载失败 → 不显示。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
@@ -93,46 +93,57 @@ beforeEach(() => {
   window.localStorage.clear();
 });
 
-describe('InboxPage 首启引导接线', () => {
-  it('真实后端 + 空收件箱：页面顶部渲染 FirstRunGuide，空态文案不再说「没有匹配的消息」', () => {
+describe('InboxPage 首启空态接线', () => {
+  it('真实后端 + 空收件箱：空态渲染一键注入入口，文案不再说「没有匹配的消息」', () => {
     mockState({ demoMode: false, accounts: ACCOUNTS, health: { received: 0 } });
     renderInboxPage();
 
-    expect(screen.getByTestId('first-run-guide')).toBeInTheDocument();
-    expect(screen.getByText('后端已连上，但还没有消息')).toBeInTheDocument();
-    expect(screen.getByTestId('first-run-mode-feishu')).toHaveTextContent('真实接口');
+    const quickstart = screen.getByTestId('quickstart');
+    expect(quickstart).toBeInTheDocument();
+    // 三个可注入的平台各一颗按钮（邮箱是 IMAP 轮询，没有 webhook，不出现）
+    expect(within(quickstart).getByRole('button', { name: '飞书' })).toBeInTheDocument();
+    expect(within(quickstart).getByRole('button', { name: '钉钉' })).toBeInTheDocument();
+    expect(within(quickstart).getByRole('button', { name: '企业微信' })).toBeInTheDocument();
+    expect(within(quickstart).queryByRole('button', { name: '邮箱' })).toBeNull();
+    // 键位提示是唯一的文字说明（可操作信息，不是解释文案）
+    expect(within(quickstart).getByText('切换')).toBeInTheDocument();
     // 首启空态：不能再用「没有匹配的消息 / 清空筛选」误导用户
     expect(screen.getByText('还没有收到消息')).toBeInTheDocument();
     expect(screen.queryByText('没有匹配的消息')).not.toBeInTheDocument();
+    // 文档型引导块已从首屏移除
+    expect(screen.queryByTestId('first-run-guide')).not.toBeInTheDocument();
   });
 
-  it('前端 Mock 演示模式：InboxPage 不渲染首启引导', () => {
+  it('前端 Mock 演示模式：空收件箱不渲染注入入口（无平台可假装）', () => {
     mockState({ demoMode: true, accounts: ACCOUNTS });
     renderInboxPage();
-    expect(screen.queryByTestId('first-run-guide')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('quickstart')).not.toBeInTheDocument();
   });
 
-  it('已有消息：InboxPage 不渲染首启引导（列表加载中也不误报首启）', () => {
+  it('已有消息：不渲染注入入口（列表加载中也不误判为空）', () => {
     mockState({ loading: true, messages: [MESSAGE], accounts: ACCOUNTS });
     renderInboxPage();
-    expect(screen.queryByTestId('first-run-guide')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('quickstart')).not.toBeInTheDocument();
   });
 
-  it('加载失败：不渲染首启引导，空态提示「消息加载失败」而不是「没收到消息」', () => {
+  it('加载失败：不渲染注入入口，空态提示「消息加载失败」而不是「没收到消息」', () => {
     mockState({ error: '无法连接后端服务，请确认服务已启动' });
     renderInboxPage();
-    expect(screen.queryByTestId('first-run-guide')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('quickstart')).not.toBeInTheDocument();
     expect(screen.getByText('消息加载失败')).toBeInTheDocument();
     expect(screen.queryByText('还没有收到消息')).not.toBeInTheDocument();
   });
 
-  it('URL 里的 traceId 已不存在（重启后内存清空）：自动打开最新一条，右侧不再空白', async () => {
+  it('URL 里的 traceId 已不存在（重启后内存清空）：回退到卡片网格，不替用户选一条', async () => {
     mockState({ messages: [MESSAGE], accounts: ACCOUNTS });
     renderInboxPage('/inbox/stale-trace-id-from-before-restart');
 
-    expect(await screen.findByTestId('detail-panel')).toBeInTheDocument();
-    expect(within(screen.getByTestId('detail-panel')).getByText('周五前交周报。')).toBeInTheDocument();
-    expect(screen.queryByText('选择一条消息')).not.toBeInTheDocument();
+    // 意图与队友那次修复一致：右侧不留空白、不让人误以为消息丢了。
+    // 但默认态是卡片网格，替用户打开"最新一条"会让他以为自己点错了消息，
+    // 所以这里回退到网格——消息本身就在眼前。
+    expect(await screen.findByText('周五前交周报。')).toBeInTheDocument();
+    // 没有打开任何详情：详情面板不存在（网格模式右侧的占位只是被 CSS 隐藏，不算"空白"）
+    expect(screen.queryByTestId('detail-panel')).not.toBeInTheDocument();
   });
 
   it('URL 里的 traceId 有效：保持用户当前选中的消息，不跳转', async () => {

@@ -1,12 +1,12 @@
-import { Button, Input } from 'antd';
+import { Input } from 'antd';
 import { SendOutlined } from '@ant-design/icons';
 import type { UnifiedMessage } from '../../types';
-import { PLATFORM_META } from '../../utils/format';
+import { RippleButton } from '../../components/RippleButton';
+import { usePreferences } from '../settings/preferences';
 
 const { TextArea } = Input;
 
 export function ReplyComposer({
-  message,
   value,
   sending,
   onChange,
@@ -18,39 +18,44 @@ export function ReplyComposer({
   onChange: (text: string) => void;
   onSend: () => void;
 }) {
-  const platform = PLATFORM_META[message.platform];
+  const prefs = usePreferences();
   const canSend = value.trim().length > 0 && !sending;
+  const enterToSend = prefs.sendKey === 'enter';
 
   return (
     <section className="composer" aria-label="回复编辑器">
       <TextArea
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="输入回复内容…（Ctrl / ⌘ + Enter 发送）"
+        placeholder={
+          enterToSend ? '输入回复内容…（Enter 发送 · Shift + Enter 换行）' : '输入回复内容…'
+        }
         autoSize={{ minRows: 3, maxRows: 6 }}
         maxLength={2000}
         showCount
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && canSend) {
+          if (e.key !== 'Enter' || !canSend) return;
+          // 中文输入法确认候选词时也会触发 Enter，必须排除
+          if (e.nativeEvent.isComposing) return;
+          const shouldSend = enterToSend
+            ? !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey
+            : e.ctrlKey || e.metaKey;
+          if (shouldSend) {
             e.preventDefault();
             onSend();
           }
         }}
       />
       <div className="composer__bar">
-        <span className="composer__hint">
-          回复将按 <b style={{ color: platform.color }}>{platform.name}</b> 格式转换后回写
-        </span>
-        <Button
-          type="primary"
-          icon={<SendOutlined />}
-          disabled={!canSend}
+        <RippleButton
           loading={sending}
+          disabled={!canSend}
           onClick={onSend}
           data-testid="send-reply"
         >
+          <SendOutlined />
           发送回复
-        </Button>
+        </RippleButton>
       </div>
     </section>
   );

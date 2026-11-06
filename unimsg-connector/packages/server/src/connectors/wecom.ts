@@ -17,7 +17,7 @@ import {
   Platform, MsgStatus, UnifiedMessage, PlatformConnector, type SendResult,
 } from '@unimsg/shared';
 import { config } from '../config';
-import { genTraceId, mockSend, verifyMock, inferType, isMock, assertRealSendable } from './base';
+import { genTraceId, mockSend, verifyMock, inferType, inferDueAt, isMock, assertRealSendable } from './base';
 import { safeEqual, wecomDecrypt, wecomEncrypt, wecomSign } from './crypto';
 import { buildXml, parseXml, type XmlObject } from './wecomXml';
 import { postJson, wecomAccessToken } from './real';
@@ -134,6 +134,7 @@ export function receive(raw: unknown): UnifiedMessage {
     conversation: chatId ? { id: chatId, type: 'group' } : undefined,
     type,
     body: String(text),
+    dueAt: type === 'todo' ? inferDueAt(String(text)) : undefined,
     status: MsgStatus.RECEIVED,
     createdAt: now,
     updatedAt: now,

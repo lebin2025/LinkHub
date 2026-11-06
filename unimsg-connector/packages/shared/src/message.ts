@@ -79,6 +79,11 @@ export interface UnifiedMessage {
   replyDraft?: string; // 大模型给出的可编辑回复草稿
   reply?: string; // 用户最终回写的文本（回写时发送此内容）
   done?: boolean; // 是否已标记完成（待办类）
+  /**
+   * 待办截止时间（ISO）。演示环境由服务端从正文做启发式推断（"明天 18:00"/"周三"/"12月3日"），
+   * 解析不出就是 undefined —— 前端归入"未设置截止"，不伪造时间。
+   */
+  dueAt?: string;
   needsReview?: boolean; // OCR 低置信/失败时标记“待人工确认”
   status: MsgStatus;
   createdAt: string;

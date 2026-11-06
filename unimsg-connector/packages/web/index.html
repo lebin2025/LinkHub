@@ -4,8 +4,28 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#1677ff" />
+    <meta name="theme-color" content="#F6F4F0" />
     <title>LinkHub · 统一消息中心</title>
+    <script>
+      // 首帧前决定主题，避免暗色模式下出现白屏闪烁
+      (function () {
+        try {
+          var forced = new URLSearchParams(location.search).get('theme');
+          var saved = localStorage.getItem('linkhub-theme');
+          var mode =
+            forced === 'light' || forced === 'dark'
+              ? forced
+              : saved === 'light' || saved === 'dark'
+                ? saved
+                : window.matchMedia('(prefers-color-scheme: dark)').matches
+                  ? 'dark'
+                  : 'light';
+          // saved === 'system' 时跟随系统（上面的 matchMedia 分支已处理）
+          document.documentElement.dataset.theme = mode;
+          document.documentElement.style.colorScheme = mode;
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

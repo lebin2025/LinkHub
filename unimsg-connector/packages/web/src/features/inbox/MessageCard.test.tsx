@@ -32,7 +32,8 @@ describe('MessageCard', () => {
   it('点击卡片回传 traceId', async () => {
     const onSelect = vi.fn();
     render(<MessageCard message={message} active={false} onSelect={onSelect} />);
-    await userEvent.click(screen.getByRole('button'));
+    // 卡片本身是 role=button，行内快捷操作是它内部的按钮，这里按可访问名称定位卡片
+    await userEvent.click(screen.getByRole('button', { name: /张三/ }));
     expect(onSelect).toHaveBeenCalledWith('t-card-1');
   });
 });

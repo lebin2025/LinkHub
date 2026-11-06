@@ -2,22 +2,22 @@ import type { DeliveryInfo } from '@unimsg/shared';
 import { MsgStatus, Platform } from '../types';
 import type { MsgType, UnifiedMessage } from '../types';
 
-/** 平台展示元信息：名称、品牌色、浅底色 */
+/** 平台展示元信息：名称、品牌色、浅底色（Apple 系统色系） */
 export const PLATFORM_META: Record<Platform, { name: string; short: string; color: string; soft: string }> = {
   [Platform.FEISHU]: { name: '飞书', short: '飞', color: '#3370ff', soft: '#eaf0ff' },
   [Platform.DINGTALK]: { name: '钉钉', short: '钉', color: '#0089ff', soft: '#e6f4ff' },
   [Platform.WECOM]: { name: '企业微信', short: '企', color: '#07c160', soft: '#e8f9ee' },
-  [Platform.MAIL]: { name: '邮箱', short: '邮', color: '#f59e0b', soft: '#fff5e0' },
+  [Platform.MAIL]: { name: '邮箱', short: '邮', color: '#ff9500', soft: '#fff4e5' },
 };
 
-/** 状态机展示元信息 */
+/** 状态机展示元信息（Apple 系统色系） */
 export const STATUS_META: Record<MsgStatus, { label: string; color: string; soft: string }> = {
-  [MsgStatus.RECEIVED]: { label: '已接收', color: '#8c8c8c', soft: '#f0f0f0' },
-  [MsgStatus.PROCESSING]: { label: '处理中', color: '#1677ff', soft: '#e6f0ff' },
-  [MsgStatus.REPLIED]: { label: '已回复', color: '#13c2c2', soft: '#e6fffb' },
-  [MsgStatus.SENT]: { label: '已发送', color: '#722ed1', soft: '#f3e8ff' },
-  [MsgStatus.SYNCED]: { label: '已同步', color: '#52c41a', soft: '#f0fbe6' },
-  [MsgStatus.FAILED]: { label: '发送失败', color: '#ff4d4f', soft: '#fff1f0' },
+  [MsgStatus.RECEIVED]: { label: '已接收', color: '#6e6e73', soft: '#f2f2f7' },
+  [MsgStatus.PROCESSING]: { label: '处理中', color: '#0a6cd6', soft: '#eaf3ff' },
+  [MsgStatus.REPLIED]: { label: '已回复', color: '#1f8a9e', soft: '#e8f7fa' },
+  [MsgStatus.SENT]: { label: '已发送', color: '#4a47c4', soft: '#eeeefc' },
+  [MsgStatus.SYNCED]: { label: '已同步', color: '#248a3d', soft: '#eaf9ee' },
+  [MsgStatus.FAILED]: { label: '发送失败', color: '#d70015', soft: '#ffeceb' },
 };
 
 /** 闭环状态顺序（用于时间线与进度条） */
@@ -115,11 +115,11 @@ export function initials(name: string): string {
 
 /** 意图标签配色：待办橙、咨询蓝、通知紫、未分类灰 */
 export function intentColor(intent?: string): { color: string; soft: string } {
-  if (!intent) return { color: '#8c8c8c', soft: '#f5f5f5' };
-  if (intent.includes('待办')) return { color: '#d46b08', soft: '#fff7e6' };
-  if (intent.includes('咨询')) return { color: '#0958d9', soft: '#e6f4ff' };
-  if (intent.includes('通知')) return { color: '#531dab', soft: '#f9f0ff' };
-  return { color: '#8c8c8c', soft: '#f5f5f5' };
+  if (!intent) return { color: '#6e6e73', soft: '#f2f2f7' };
+  if (intent.includes('待办')) return { color: '#b25000', soft: '#fff4e5' };
+  if (intent.includes('咨询')) return { color: '#0a6cd6', soft: '#eaf3ff' };
+  if (intent.includes('通知')) return { color: '#4a47c4', soft: '#eeeefc' };
+  return { color: '#6e6e73', soft: '#f2f2f7' };
 }
 
 /** 列表排序：按创建时间倒序（与后端 list 接口默认行为一致） */

@@ -15,7 +15,7 @@ export function EmptyState({
     <div className="empty-state">
       <Empty
         image={<InboxOutlined className="empty-state__icon" />}
-        imageStyle={{ height: 56 }}
+        styles={{ image: { height: 56 } }}
         description={
           <div>
             <div className="empty-state__title">{title}</div>

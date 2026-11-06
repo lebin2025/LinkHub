@@ -11,7 +11,7 @@ import {
   Platform, MsgStatus, UnifiedMessage, PlatformConnector, type SendResult,
 } from '@unimsg/shared';
 import { config } from '../config';
-import { genTraceId, mockSend, verifyMock, inferType, isMock, assertRealSendable } from './base';
+import { genTraceId, mockSend, verifyMock, inferType, inferDueAt, isMock, assertRealSendable } from './base';
 import { dingtalkDecrypt, dingtalkSign, safeEqual } from './crypto';
 import { dingtalkAccessToken, postJson } from './real';
 
@@ -71,6 +71,7 @@ export function receive(raw: unknown): UnifiedMessage {
     conversation: parseConversation(r),
     type,
     body: String(text),
+    dueAt: type === 'todo' ? inferDueAt(String(text)) : undefined,
     status: MsgStatus.RECEIVED,
     createdAt: now,
     updatedAt: now,

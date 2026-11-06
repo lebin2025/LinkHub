@@ -11,7 +11,12 @@ const RANK: Record<MsgStatus, number> = {
   [MsgStatus.FAILED]: 2,
 };
 
-/** 状态机可视化：received → processing → replied → sent → synced（失败单独标红） */
+/**
+ * 状态机可视化：received → processing → replied → sent → synced（失败单独标红）。
+ *
+ * 视觉规则：不画连接线，只用「一排圆点 + 标签」表达进度；全流程灰度，
+ * **当前态**才用唯一的品牌强调色，避免彩虹色破坏"至多一个强调色"的纪律。
+ */
 export function StatusFlow({ status }: { status: MsgStatus }) {
   const current = RANK[status];
   const failed = status === MsgStatus.FAILED;
@@ -27,28 +32,22 @@ export function StatusFlow({ status }: { status: MsgStatus }) {
             key={step}
             className={`status-step${reached ? ' is-reached' : ''}${isCurrent ? ' is-current' : ''}`}
           >
-            <span className="status-step__dot" style={{ background: reached ? meta.color : '#d9dce3' }}>
+            <span
+              className={`status-step__dot${reached ? ' is-reached' : ''}${isCurrent ? ' is-current' : ''}`}
+            >
               {reached && <CheckOutlined />}
             </span>
             <span className="status-step__label">{meta.label}</span>
-            {index < STATUS_FLOW.length - 1 && (
-              <span
-                className="status-step__line"
-                style={{ background: index < current ? meta.color : '#e6e9f0' }}
-              />
-            )}
           </div>
         );
       })}
 
       {failed && (
         <div className="status-step status-step--failed is-current">
-          <span className="status-step__dot" style={{ background: '#ff4d4f' }}>
+          <span className="status-step__dot status-step--failed">
             <CloseOutlined />
           </span>
-          <span className="status-step__label" style={{ color: '#ff4d4f' }}>
-            发送失败
-          </span>
+          <span className="status-step__label status-step--failed">发送失败</span>
         </div>
       )}
     </div>
