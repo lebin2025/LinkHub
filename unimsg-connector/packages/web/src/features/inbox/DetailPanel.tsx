@@ -11,7 +11,7 @@ import {
 import { MsgStatus } from '../../types';
 import type { UnifiedMessage } from '../../types';
 import { store } from '../../store';
-import { TYPE_LABEL, PLATFORM_META, deliveryLabel, formatDateTime, formatRelative, shortTrace } from '../../utils/format';
+import { TYPE_LABEL, PLATFORM_META, deliveryLabel, conversationLabel, formatDateTime, formatRelative, shortTrace } from '../../utils/format';
 import { AvatarBadge } from '../../components/AvatarBadge';
 import { PlatformTag } from '../../components/PlatformTag';
 import { StatusBadge } from '../../components/StatusBadge';
@@ -176,6 +176,15 @@ export function DetailPanel({ message }: { message: UnifiedMessage }) {
             <div>
               <dt>平台</dt>
               <dd>{PLATFORM_META[message.platform].name}</dd>
+            </div>
+            <div>
+              <dt>会话</dt>
+              <dd title={message.conversation ? `会话 ID：${message.conversation.id}` : undefined}>
+                {conversationLabel(message)}
+                {message.conversation?.type === 'group' && (
+                  <span className="detail__conv-hint">回复会发回该群</span>
+                )}
+              </dd>
             </div>
             <div>
               <dt>类型</dt>

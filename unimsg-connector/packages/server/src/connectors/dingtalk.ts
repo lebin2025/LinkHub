@@ -20,6 +20,41 @@ function header(headers: Record<string, string | string[] | undefined> | undefin
   return Array.isArray(v) ? (v[0] ?? '') : (v ?? '');
 }
 
+/**
+ * 会话映射：钉钉回调里群聊是 conversationType='2'（文档为字符串），
+ * 但不同入口/版本偶尔给数字 2 或 'group'，这里统一兼容，
+ * 避免群消息被误判成单聊——单聊分支会把回复私聊给发送人，而不是发回群里。
+ */
+export function parseConversation(r: any): UnifiedMessage['conversation'] {
+  const id = r?.conversationId;
+  if (id === undefined || id === null || String(id).trim() === '') return undefined;
+
+  const rawType = r?.conversationType;
+  const typeText = String(rawType ?? '').trim().toLowerCase();
+  const isGroup = rawType === 2 || typeText === '2' || typeText === 'group';
+
+  const title = isGroup && r?.conversationTitle ? String(r.conversationTitle).trim() : '';
+  return { id: String(id), type: isGroup ? 'group' : 'p2p', ...(title ? { title } : {}) };
+}
+
+/**
+ * 入站事件的一行摘要（Stream 日志用）：
+ * 钉钉 Stream 只推「单聊」和「群聊里 @机器人」的消息，普通群消息平台根本不会推送。
+ * 所以这条日志是排查「群里 @ 了机器人却没反应」最直接的判据：
+ * 有这行 = 平台确实推到了；没有 = 平台没推（机器人没进群 / 不是同一个应用机器人 / 连接断开）。
+ */
+export function describeInbound(raw: unknown): string {
+  const r = raw as any;
+  const conversation = parseConversation(r);
+  const where = !conversation
+    ? '无会话'
+    : conversation.type === 'group'
+      ? `群聊${conversation.title ? `「${conversation.title}」` : ''}`
+      : '单聊';
+  const sender = r?.senderNick ?? r?.senderStaffId ?? r?.senderId ?? '未知发送者';
+  return `收到钉钉消息：${where} · 发送者=${sender} · 类型=${r?.msgtype ?? 'unknown'} · msgId=${r?.msgId ?? '?'}`;
+}
+
 export function receive(raw: unknown): UnifiedMessage {
   const r = raw as any;
   const text = r?.text?.content ?? r?.content ?? '';
@@ -27,16 +62,13 @@ export function receive(raw: unknown): UnifiedMessage {
   const now = new Date().toISOString();
   const type = r?.msgtype === 'image' ? 'image'
     : r?.msgtype === 'file' ? 'file' : inferType(text);
-  const conversationId = r?.conversationId;
 
   return {
     traceId: genTraceId(),
     platform: Platform.DINGTALK,
     externalId: r?.msgId ?? 'unknown',
     sender: { id: senderId, name: r?.senderNick ?? senderId },
-    conversation: conversationId
-      ? { id: String(conversationId), type: r?.conversationType === '2' ? 'group' : 'p2p' }
-      : undefined,
+    conversation: parseConversation(r),
     type,
     body: String(text),
     status: MsgStatus.RECEIVED,

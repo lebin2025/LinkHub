@@ -118,6 +118,7 @@ pnpm --filter @unimsg/server start
 | 接口 401 / 页面提示未授权 | 前端 `VITE_API_TOKEN` 与后端 `API_TOKEN` 不一致 | 两处改成同一个值（默认 `dev-token`），重启后端与 Vite |
 | 前端显示「数据加载异常」 | 后端没起、地址/端口不对、或 `packages/web/.env` 指向旧地址 | 先 `curl http://127.0.0.1:3001/api/health` 确认后端；核对 `VITE_API_BASE`；改完重启 Vite |
 | 页面提示 403「Origin 不在 CORS 白名单」 | `.env` 配了 `CORS_ORIGINS` 但没含前端地址 | 把 `http://127.0.0.1:5173` 加进 `CORS_ORIGINS`，或清空该变量 |
+| 群里 @ 了机器人，收件箱却没消息 | 钉钉/企微**只推送「@机器人」的群消息**，普通群消息平台不推送；且群里必须加的是「企业内部应用机器人」，自定义 Webhook 机器人只能发不能收 | 在群里 **@机器人** 发一句；终端出现 `[stream] 收到钉钉消息：群聊「…」` 就说明通了；没有这行 = 平台没推（检查机器人是否属于同一个应用、版本已发布、消息接收模式 = Stream） |
 | `e2e` 提示找不到 Python | e2e 冒烟脚本需要 Python 3 | 安装 Python 3 并确保 `python` / `python3` 在 PATH（Windows 安装时勾选 Add to PATH）；不跑 e2e 不影响起服务 |
 | 中文路径下个别命令报错 | 少数工具链对非 ASCII 路径兼容差 | 把项目移到纯英文路径（如 `C:\dev\LinkHub`）后重试 |
 | `doctor` / 接口连接超时 | 公司代理、VPN、防火墙拦截 | 临时关代理或换手机热点重试；`pnpm install` 慢可换 registry 镜像（见上） |

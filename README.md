@@ -152,7 +152,7 @@ MAIL_MODE=real
 | 安全：Bearer 鉴权 + WebSocket 握手校验 | ✅ 完成 |
 | 闭环日志（traceId 全链路可回放） | ✅ 完成（Mock 与真实通道分开描述） |
 | 边界降级：限流退避、OCR 置信度、意图失败回退、DLQ | ✅ 完成 |
-| 单元测试 / 端到端冒烟 | ✅ 2026-11-04 实测：server **213** 条、web **73** 条、e2e **20** 项断言、契约自检 **46** 项全绿 |
+| 单元测试 / 端到端冒烟 | ✅ 2026-11-06 实测：server **217** 条、web **74** 条、e2e **20** 项断言、契约自检 **46** 项全绿 |
 | 上手与交付文档 | ✅ [quickstart.md](docs/quickstart.md)（5 分钟上手）/ [demo-script.md](docs/demo-script.md)（演示脚本）/ [delivery-checklist.md](docs/delivery-checklist.md)（交付打包）/ [risk-register.md](docs/risk-register.md)（风险台账）；README 顶部有「30 秒选路径」 |
 | 健壮性加固（本轮） | ✅ webhook 空/畸形事件 400 不入库、端口占用中文提示、CORS 白名单、状态回流防倒退、日志脱敏、空 `API_TOKEN` 不关鉴权、邮箱嵌套 MIME/水位持久化/中文目录 |
 | 大模型 / OCR 真实调用 | 🚧 未实现：当前按关键词规则 Mock（配置项已预留） |
@@ -380,13 +380,13 @@ pnpm install
 
 ## 测试与验证
 
-实测环境：Windows 11、Node 24.14.0、pnpm 9.15.9（corepack / shim）、Python 3.12.10；日期 **2026-11-04**（保留 2026-11-03 的真实接入记录，见下）。
+实测环境：Windows 11、Node 24.14.0、pnpm 9.15.9（corepack / shim）、Python 3.12.10；日期 **2026-11-06**（保留 2026-11-03 的真实接入记录，见下）。
 
 | 命令 | 实测结果 |
 |---|---|
 | `pnpm typecheck` | `shared` / `server` / `web` 三包检查通过（exit 0） |
-| `pnpm test`（server） | **213 passed / 213**（16 个测试文件：连接器、真实适配器、MIME、IMAP 水位/目录、webhook HTTP 级、app/CORS、doctor 探针/渲染/拼写检查等），约 1–2s |
-| `pnpm test:web` | **73 passed / 73**（11 个测试文件：HttpApi / WsRealtime / AppStore / MockApi / AccountsPage / FirstRunGuide / footerState / InboxPage / MessageCard / ReplyComposer / format） |
+| `pnpm test`（server） | **217 passed / 217**（16 个测试文件：连接器、真实适配器、MIME、IMAP 水位/目录、webhook HTTP 级、app/CORS、doctor 探针/渲染/拼写检查等），约 1–2s |
+| `pnpm test:web` | **74 passed / 74**（11 个测试文件：HttpApi / WsRealtime / AppStore / MockApi / AccountsPage / FirstRunGuide / footerState / InboxPage / MessageCard / ReplyComposer / format） |
 | `pnpm e2e`（Windows PowerShell，默认 3001） | **20 项断言全部 PASS + `SMOKE OK`**，exit 0（约 10s）；强制四平台 `mock`，完全离线 |
 | `pnpm e2e:sh`（Git Bash，3123 端口） | 同上，**20 项 PASS + `SMOKE OK`**（CI 使用此命令） |
 | 契约自检（后端起 mock 后） | `node packages/web/scripts/verify-contract.mjs http://127.0.0.1:3001 dev-token` → **46 PASS / 0 FAIL**（含 `modes` / `sentMock` / `mode`+`policy` / 邮箱账号明细 / `delivery` / WS 握手） |
@@ -467,6 +467,7 @@ pnpm install
 - **飞书真实收发被租户策略 `21001` 拦住**：代码与配置都已就绪，但要企业认证或换合规租户才能验证；此外 `im:message`（获取与发送单聊、群组消息）权限尚未开通，当前只有 `im:message:send_as_bot`。
 - **企业微信**：真实适配器与 19 条单测已就绪、`gettoken` 已通，但**卡在「企业可信 IP」**——当前出口 IP 不在白名单，真实发送端到端尚未验证（典型报错 60020）；同时缺回调 Token/EncodingAESKey，暂时收不到消息。`pnpm run doctor` 每次都会打印当前出口公网 IP：电脑重启一般不影响（公网出口在网关/运营商侧），但重拨路由器、换网络、开代理后可能变化，演示前先核对即可。
 - **钉钉**真实收消息依赖 Stream 长连接（本机可用）或公网 HTTP 回调；`DINGTALK_STREAM` 默认关闭，需要显式开启并在后台发布版本。
+- **钉钉 / 企业微信群聊只推「@机器人」的消息**（平台规则，不是本项目限制）：普通群消息不会推给机器人，钉钉 Stream 的机器人通道只投递「单聊」和「群内 @机器人」。所以群聊场景能聚合的就是被 @ 的那一条，**不能承诺"群里所有消息都收"**。另外群里要添加的是**企业内部应用机器人**（自定义 Webhook 机器人只能发、不能收）。群内 @ 消息入库后会保留群会话与群名，回复走群消息接口回到原群（界面「会话」一行显示「群聊「群名」· 回复会发回该群」）。参考：[钉钉机器人接收消息](https://open.dingtalk.com/document/robots/receive-message)。
 - **邮箱**没有平台回调：真实模式下 `/api/webhook/mail` 一律验签失败，新信只能由本机轮询 ingest，默认 45s 一轮，不是实时。
 - 邮箱 UID 水位已持久化到 `.mail-watermarks.json`（`MAIL_STATE_FILE` 可改路径），重启续传、不再跳过停机期间的邮件；单轮最多追 5 批（每批 20），大批量新邮件会跨轮继续，不会跳水位。**升级到本版本之前**已发生过的「目录被清空/重建」无法识别（旧状态没有 UIDVALIDITY）；升级后遇到 UIDVALIDITY 变化会按「宁可重复、不漏信」自动重导（若目录重建但保留原邮件，可能重复导入一次）。
 - 邮箱 STARTTLS（143/587/25）已实现并有单测，但真实服务商 587/143 端到端尚未实测；部分服务商（如 Gmail 需应用专用密码，部分 Microsoft 365 租户关闭基础认证）可能拒绝账号密码/授权码登录，遇到时需改用应用专用密码或换服务商。
@@ -489,7 +490,7 @@ pnpm install
 | `pnpm dev` | 开发模式（tsx watch） |
 | `pnpm start` | 启动服务（:3001） |
 | `pnpm typecheck` | TypeScript 类型检查（shared + server + web） |
-| `pnpm test` | 服务端单元测试（213 条，含 doctor / webhook / MIME / 水位） |
+| `pnpm test` | 服务端单元测试（217 条，含 doctor / webhook / MIME / 水位） |
 | `pnpm test:web` | 前端单元测试（73 条） |
 | `pnpm run doctor` | 只读自检：环境 + 模式 + 逐平台探针 + 出口公网 IP + 中文修复建议；有 FAIL 时退出码 1 |
 | `pnpm run doctor -- --platform=feishu,mail` | 只检查指定平台 |

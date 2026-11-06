@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deliveryLabel, formatRelative, initials, shortTrace, sortMessages } from './format';
+import { conversationLabel, deliveryLabel, formatRelative, initials, shortTrace, sortMessages } from './format';
 import { MsgStatus, Platform } from '../types';
 import type { UnifiedMessage } from '../types';
 
@@ -53,5 +53,14 @@ describe('format utils', () => {
       kind: 'real',
     });
     expect(deliveryLabel({ mode: 'real', at })).toEqual({ text: '真实接口', kind: 'real' });
+  });
+
+  it('会话类型：群聊带群名 / 群聊无群名 / 单聊 / 无会话', () => {
+    expect(conversationLabel(msg({ conversation: { id: 'cid1', type: 'group', title: '项目协作群' } }))).toBe(
+      '群聊「项目协作群」',
+    );
+    expect(conversationLabel(msg({ conversation: { id: 'cid2', type: 'group' } }))).toBe('群聊');
+    expect(conversationLabel(msg({ conversation: { id: 'u1', type: 'p2p' } }))).toBe('单聊');
+    expect(conversationLabel(msg({}))).toBe('—');
   });
 });

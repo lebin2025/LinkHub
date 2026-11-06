@@ -898,6 +898,13 @@ button {
   white-space: nowrap;
 }
 
+/* 群聊会话提示：回复会发回群里 */
+.detail__conv-hint {
+  margin-left: 6px;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
 /* 回复编辑器 */
 .detail__footer {
   border-top: 1px solid var(--border);

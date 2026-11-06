@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { Platform, MsgStatus } from '@unimsg/shared';
 import { config, forceAllModes } from '../config';
 import { feishuConnector } from './feishu';
-import { dingtalkConnector } from './dingtalk';
+import { dingtalkConnector, describeInbound } from './dingtalk';
 import { feishuEncrypt, dingtalkEncrypt, dingtalkSign } from './crypto';
 import { resetTokenCache } from './real';
 
@@ -154,6 +154,35 @@ test('钉钉 receive：群会话与发送者映射', () => {
   assert.equal(msg.sender.name, '小王');
   assert.equal(msg.conversation?.id, 'cid1');
   assert.equal(msg.conversation?.type, 'group');
+});
+
+test('钉钉 receive：conversationType 数字 2 也按群聊处理，并保留群名', () => {
+  const msg = dingtalkConnector.receive({
+    msgId: 'm2', msgtype: 'text', text: { content: '@机器人 周五前交周报' },
+    senderStaffId: 'staff1', senderNick: '小王',
+    conversationId: 'cid2', conversationType: 2, conversationTitle: '项目协作群',
+  });
+  assert.equal(msg.conversation?.type, 'group');
+  assert.equal(msg.conversation?.title, '项目协作群');
+});
+
+test('钉钉 receive：单聊不误判成群聊，也不带群名', () => {
+  const msg = dingtalkConnector.receive({
+    msgId: 'm3', msgtype: 'text', text: { content: '在吗' },
+    senderStaffId: 'staff1', senderNick: '小王', conversationId: 'cid3', conversationType: '1',
+  });
+  assert.equal(msg.conversation?.type, 'p2p');
+  assert.equal(msg.conversation?.title, undefined);
+});
+
+test('钉钉入站日志摘要：群聊写明群名、单聊不写群名（判断平台到底推没推）', () => {
+  assert.match(describeInbound({
+    msgId: 'm4', conversationId: 'cid4', conversationType: '2',
+    conversationTitle: '项目协作群', senderNick: '小王', msgtype: 'text',
+  }), /群聊「项目协作群」/);
+  assert.match(describeInbound({
+    msgId: 'm5', conversationId: 'cid5', conversationType: '1', senderNick: '小王', msgtype: 'text',
+  }), /单聊/);
 });
 
 test('钉钉真实发送：群消息走 groupMessages/send', async () => {

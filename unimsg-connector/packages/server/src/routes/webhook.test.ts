@@ -175,6 +175,29 @@ test('正常钉钉样例：200 {ok:true}', async () => {
   });
 });
 
+test('钉钉群消息（conversationType=2）：入库保留群会话与群名，供「回复发回群」使用', async () => {
+  await withApp(async ({ base, repo }) => {
+    const res = await post(base, '/api/webhook/dingtalk', json({
+      msgId: 'group_msg_001',
+      msgtype: 'text',
+      text: { content: '@机器人 周五前交周报' },
+      senderStaffId: 'staff_group_1',
+      senderNick: '钉钉小王',
+      conversationId: 'cid_group_001',
+      conversationType: '2',
+      conversationTitle: '项目协作群',
+    }));
+    assert.equal(res.status, 200);
+    assert.equal(res.json?.ok, true);
+
+    const saved = repo.findByExternal(Platform.DINGTALK, 'group_msg_001');
+    assert.ok(saved, '群消息必须入库（平台只推 @机器人 的群消息，推了就不能丢）');
+    assert.equal(saved!.conversation?.type, 'group', '群会话不能被误判成单聊，否则回复会私聊发送人');
+    assert.equal(saved!.conversation?.id, 'cid_group_001');
+    assert.equal(saved!.conversation?.title, '项目协作群', '群名用于界面展示「回复会发回该群」');
+  });
+});
+
 test('正常企微明文样例：200 且回明文 success', async () => {
   await withApp(async ({ base, repo }) => {
     const res = await post(base, '/api/webhook/wecom', json(wecomSample));

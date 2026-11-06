@@ -8,6 +8,7 @@ import { DWClient, TOPIC_ROBOT, type DWClientDownStream } from 'dingtalk-stream'
 import { Platform } from '@unimsg/shared';
 import { config } from '../config';
 import { MessageService } from '../services/message';
+import { describeInbound } from '../connectors/dingtalk';
 
 export interface DingtalkStreamHandle {
   client: DWClient;
@@ -22,6 +23,8 @@ async function handleRobotMessage(
   let ack: Record<string, unknown>;
   try {
     const data = JSON.parse(res.data);
+    // 先落一行「平台到底推了什么」：群里 @机器人 是否有反应，看这行就知道是平台没推还是我们丢了
+    console.log(`[stream] ${describeInbound(data)}`);
     const r = await svc.onPlatformEvent(Platform.DINGTALK, data);
     ack = { status: 'SUCCESS', duplicate: r.duplicate ?? false, traceId: r.message?.traceId };
   } catch (e) {
@@ -48,6 +51,6 @@ export async function startDingtalkStream(svc: MessageService): Promise<Dingtalk
   });
 
   await client.connect();
-  console.log('[stream] 钉钉 Stream 已连接，机器人消息将实时入库');
+  console.log('[stream] 钉钉 Stream 已连接：只接收「单聊」和「群聊里 @机器人」的消息（普通群消息平台不推送），机器人消息将实时入库');
   return { client, close: () => client.disconnect() };
 }

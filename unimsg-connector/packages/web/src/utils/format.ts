@@ -53,6 +53,17 @@ export function deliveryLabel(delivery?: DeliveryInfo): DeliveryLabel {
   return { text: platformReply ? `真实接口（${platformReply}）` : '真实接口', kind: 'real' };
 }
 
+/**
+ * 会话类型文案（详情页「会话」一行）：
+ * 群聊消息必须一眼看出回复会发回群里，而不是私聊给发送人。
+ */
+export function conversationLabel(message: Pick<UnifiedMessage, 'conversation'>): string {
+  const c = message.conversation;
+  if (!c) return '—';
+  if (c.type !== 'group') return '单聊';
+  return c.title ? `群聊「${c.title}」` : '群聊';
+}
+
 /** 相对时间：刚刚 / n 分钟前 / 今天 HH:mm / 昨天 HH:mm / MM-DD HH:mm */
 export function formatRelative(iso: string, now = Date.now()): string {
   const t = new Date(iso).getTime();

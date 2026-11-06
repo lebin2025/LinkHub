@@ -59,6 +59,8 @@ export interface SendResult {
 export interface Conversation {
   id: string;
   type: 'group' | 'p2p';
+  /** 群名称等展示用信息（平台返回才有，例如钉钉 conversationTitle；不参与发送） */
+  title?: string;
 }
 
 /**
