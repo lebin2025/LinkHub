@@ -14,7 +14,7 @@ import type { DeliveryMode } from '@unimsg/shared';
 import { useAppState } from '../../hooks/useAppState';
 import { Platform } from '../../types';
 import type { AccountInfo, MailAccountInfo } from '../../services/api';
-import { PLATFORM_META } from '../../utils/format';
+import { PLATFORM_META, toneStyle } from '../../utils/format';
 import { DrawerSection } from '../../components/DrawerSection';
 import { Sparkline } from '../../components/Sparkline';
 import { useHealthSeries } from '../../hooks/useHealthSeries';
@@ -75,7 +75,7 @@ export function AccountCard({ account }: { account: AccountInfo }) {
   return (
     <Card className="account-card" data-testid={`account-card-${account.platform}`}>
       <div className="account-card__head">
-        <span className="account-card__logo" style={{ background: meta.soft, color: meta.color }}>
+        <span className="account-card__logo" style={toneStyle(meta)}>
           {meta.short}
         </span>
         <div className="account-card__title">

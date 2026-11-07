@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#F6F4F0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#ffffff" id="theme-color-meta" />
     <title>LinkHub · 统一消息中心</title>
     <script>
       // 首帧前决定主题，避免暗色模式下出现白屏闪烁
@@ -23,6 +23,18 @@
           // saved === 'system' 时跟随系统（上面的 matchMedia 分支已处理）
           document.documentElement.dataset.theme = mode;
           document.documentElement.style.colorScheme = mode;
+
+          // 浏览器 UI（地址栏）颜色跟随主题；原来写死 #F6F4F0 是暖色方案留下的
+          var meta = document.getElementById('theme-color-meta');
+          if (meta) meta.setAttribute('content', mode === 'dark' ? '#000000' : '#ffffff');
+
+          // 密度 / 动效偏好必须在首帧前落到 <html>，
+          // 否则紧凑用户在 useEffect 生效前会先看到一帧宽松布局（闪烁）
+          var prefs = JSON.parse(localStorage.getItem('linkhub-prefs') || '{}');
+          document.documentElement.dataset.density =
+            prefs && prefs.density === 'compact' ? 'compact' : 'comfortable';
+          document.documentElement.dataset.motion =
+            prefs && prefs.motion === 'reduced' ? 'reduced' : 'full';
         } catch (e) {}
       })();
     </script>

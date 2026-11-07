@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Alert, App as AntApp, Avatar, Dropdown, Tooltip } from 'antd';
 import type { MenuProps } from 'antd';
@@ -198,7 +198,7 @@ export function AppShell() {
           {glow && (
             <span
               className={`rail__glow${jelly ? ' is-moving' : ''}`}
-              style={{ top: glow.top, height: glow.height }}
+              style={{ '--glow-y': `${glow.top}px`, height: glow.height } as CSSProperties}
               aria-hidden="true"
             />
           )}

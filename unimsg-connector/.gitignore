@@ -8,3 +8,6 @@ dist/
 # 邮箱 UID 水位状态文件（运行期原子写，重启续传用，不进仓库）
 .mail-watermarks.json
 *.tmp
+
+# 视觉走查截图（本地临时产物）
+.shots/

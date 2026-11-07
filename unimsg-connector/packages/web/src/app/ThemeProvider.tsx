@@ -72,8 +72,16 @@ function readInitialPreference(): ThemePreference {
   return 'system';
 }
 
+/**
+ * 是否该弱化动效：**系统偏好**与**应用内「减弱动效」**任一为真都算。
+ *
+ * 之前只查了媒体查询，导致用户主动在设置里关掉动效后，切主题仍然播 620ms 的圆形揭示
+ * ——CSS 的 `[data-motion='reduced'] *` 选择器管不到 `::view-transition-*` 伪元素。
+ */
 function prefersReducedMotion(): boolean {
-  return typeof window !== 'undefined' && !!window.matchMedia?.(REDUCE_QUERY).matches;
+  if (typeof window === 'undefined') return false;
+  const inApp = document.documentElement.dataset.motion === 'reduced';
+  return inApp || !!window.matchMedia?.(REDUCE_QUERY).matches;
 }
 
 /** 同步把主题落到 <html> 上：View Transition 的快照必须在这一帧就拿到新配色 */
@@ -81,6 +89,10 @@ function applyTheme(mode: ThemeMode, preference: ThemePreference) {
   const root = document.documentElement;
   root.dataset.theme = mode;
   root.style.colorScheme = mode;
+  // 地址栏颜色跟随主题（首帧由 index.html 的内联脚本设，这里管运行中切换）
+  document
+    .getElementById('theme-color-meta')
+    ?.setAttribute('content', mode === 'dark' ? '#000000' : '#ffffff');
   try {
     window.localStorage.setItem(STORAGE_KEY, preference);
   } catch {

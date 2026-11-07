@@ -9,6 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "lint:css": "node scripts/check-styles.mjs",
     "test": "node scripts/test.mjs",
     "test:watch": "node scripts/test.mjs --watch"
   },

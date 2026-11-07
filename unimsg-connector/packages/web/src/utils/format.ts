@@ -1,23 +1,79 @@
+import type { CSSProperties } from 'react';
 import type { DeliveryInfo } from '@unimsg/shared';
+import { mixHex, readableInk } from './ink';
 import { MsgStatus, Platform } from '../types';
 import type { MsgType, UnifiedMessage } from '../types';
 
-/** 平台展示元信息：名称、品牌色、浅底色（Apple 系统色系） */
-export const PLATFORM_META: Record<Platform, { name: string; short: string; color: string; soft: string }> = {
-  [Platform.FEISHU]: { name: '飞书', short: '飞', color: '#3370ff', soft: '#eaf0ff' },
-  [Platform.DINGTALK]: { name: '钉钉', short: '钉', color: '#0089ff', soft: '#e6f4ff' },
-  [Platform.WECOM]: { name: '企业微信', short: '企', color: '#07c160', soft: '#e8f9ee' },
-  [Platform.MAIL]: { name: '邮箱', short: '邮', color: '#ff9500', soft: '#fff4e5' },
+/**
+ * 标签色板：**一个作者值**（`color`）派生出四支，不再各处硬编码。
+ *
+ * - `color` 品牌原色，只给**图形**（色点、头像底、连接灯）——非文字只需 3:1
+ * - `soft` 文字底：`color` 混白 90%
+ * - `ink` 浅底上的墨色：同色相压暗，≥4.5:1
+ * - `softDark` / `inkDark` 暗色主题那一对（浅底混黑 16% → 重新算墨色）
+ *
+ * 原来 color / soft / ink 是三个独立字符串，暗色还要在 CSS 里用 `!important`
+ * 再覆盖一次——同一个视觉决策有四处真相，改一处必忘三处。现在只留 `color`，
+ * 其余由 `tone()` 推导，组件只负责把 CSS 变量挂上去。
+ */
+export interface TagTone {
+  color: string;
+  soft: string;
+  ink: string;
+  softDark: string;
+  inkDark: string;
+}
+
+/** 浅底混黑的比例：与 `--surface-3` 同一档灰度，保留一点点色相偏色 */
+const DARK_TINT = 0.16;
+
+export function tone(color: string): TagTone {
+  // 往白走到 90% → 浅色底；从纯黑往浅底走 16% → 暗色底（两者同一个色相来源）
+  const soft = mixHex(color, '#ffffff', 0.9);
+  const softDark = mixHex('#000000', soft, DARK_TINT);
+  return {
+    color,
+    soft,
+    ink: readableInk(color, soft),
+    softDark,
+    inkDark: readableInk(color, softDark),
+  };
+}
+
+/** 挂到元素上的 CSS 变量（`as CSSProperties` 让自定义属性穿过类型检查） */
+export function toneStyle(t: TagTone): CSSProperties {
+  return {
+    '--tag-soft': t.soft,
+    '--tag-ink': t.ink,
+    '--tag-soft-dark': t.softDark,
+    '--tag-ink-dark': t.inkDark,
+  } as CSSProperties;
+}
+
+export interface PlatformTone extends TagTone {
+  name: string;
+  short: string;
+}
+
+export const PLATFORM_META: Record<Platform, PlatformTone> = {
+  [Platform.FEISHU]: { name: '飞书', short: '飞', ...tone('#3370ff') },
+  [Platform.DINGTALK]: { name: '钉钉', short: '钉', ...tone('#0089ff') },
+  [Platform.WECOM]: { name: '企业微信', short: '企', ...tone('#07c160') },
+  [Platform.MAIL]: { name: '邮箱', short: '邮', ...tone('#ff9500') },
 };
 
-/** 状态机展示元信息（Apple 系统色系） */
-export const STATUS_META: Record<MsgStatus, { label: string; color: string; soft: string }> = {
-  [MsgStatus.RECEIVED]: { label: '已接收', color: '#6e6e73', soft: '#f2f2f7' },
-  [MsgStatus.PROCESSING]: { label: '处理中', color: '#0a6cd6', soft: '#eaf3ff' },
-  [MsgStatus.REPLIED]: { label: '已回复', color: '#1f8a9e', soft: '#e8f7fa' },
-  [MsgStatus.SENT]: { label: '已发送', color: '#4a47c4', soft: '#eeeefc' },
-  [MsgStatus.SYNCED]: { label: '已同步', color: '#248a3d', soft: '#eaf9ee' },
-  [MsgStatus.FAILED]: { label: '发送失败', color: '#d70015', soft: '#ffeceb' },
+/** 状态机展示元信息（color 给色点，ink 给文字） */
+export interface StatusTone extends TagTone {
+  label: string;
+}
+
+export const STATUS_META: Record<MsgStatus, StatusTone> = {
+  [MsgStatus.RECEIVED]: { label: '已接收', ...tone('#6e6e73') },
+  [MsgStatus.PROCESSING]: { label: '处理中', ...tone('#0a6cd6') },
+  [MsgStatus.REPLIED]: { label: '已回复', ...tone('#1f8a9e') },
+  [MsgStatus.SENT]: { label: '已发送', ...tone('#4a47c4') },
+  [MsgStatus.SYNCED]: { label: '已同步', ...tone('#248a3d') },
+  [MsgStatus.FAILED]: { label: '发送失败', ...tone('#d70015') },
 };
 
 /** 闭环状态顺序（用于时间线与进度条） */
@@ -114,12 +170,12 @@ export function initials(name: string): string {
 }
 
 /** 意图标签配色：待办橙、咨询蓝、通知紫、未分类灰 */
-export function intentColor(intent?: string): { color: string; soft: string } {
-  if (!intent) return { color: '#6e6e73', soft: '#f2f2f7' };
-  if (intent.includes('待办')) return { color: '#b25000', soft: '#fff4e5' };
-  if (intent.includes('咨询')) return { color: '#0a6cd6', soft: '#eaf3ff' };
-  if (intent.includes('通知')) return { color: '#4a47c4', soft: '#eeeefc' };
-  return { color: '#6e6e73', soft: '#f2f2f7' };
+export function intentColor(intent?: string): TagTone {
+  if (!intent) return tone('#6e6e73');
+  if (intent.includes('待办')) return tone('#b25000');
+  if (intent.includes('咨询')) return tone('#0a6cd6');
+  if (intent.includes('通知')) return tone('#4a47c4');
+  return tone('#6e6e73');
 }
 
 /** 列表排序：按创建时间倒序（与后端 list 接口默认行为一致） */
