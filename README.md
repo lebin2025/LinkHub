@@ -152,12 +152,13 @@ MAIL_MODE=real
 | 安全：Bearer 鉴权 + WebSocket 握手校验 | ✅ 完成 |
 | 闭环日志（traceId 全链路可回放） | ✅ 完成（Mock 与真实通道分开描述） |
 | 边界降级：限流退避、OCR 置信度、意图失败回退、DLQ | ✅ 完成 |
-| 单元测试 / 端到端冒烟 | ✅ 2026-11-06 实测：server **217** 条、web **76** 条、e2e **20** 项断言、契约自检 **46** 项全绿 |
+| 单元测试 / 端到端冒烟 | ✅ 2026-11-07 实测：server **227** 条、web **112** 条、e2e **20** 项断言、契约自检 **46** 项全绿 |
 | 上手与交付文档 | ✅ [quickstart.md](docs/quickstart.md)（5 分钟上手）/ [demo-script.md](docs/demo-script.md)（演示脚本）/ [delivery-checklist.md](docs/delivery-checklist.md)（交付打包）/ [risk-register.md](docs/risk-register.md)（风险台账）；README 顶部有「30 秒选路径」 |
 | 健壮性加固（本轮） | ✅ webhook 空/畸形事件 400 不入库、端口占用中文提示、CORS 白名单、状态回流防倒退、日志脱敏、空 `API_TOKEN` 不关鉴权、邮箱嵌套 MIME/水位持久化/中文目录 |
 | 大模型 / OCR 真实调用 | 🚧 未实现：当前按关键词规则 Mock（配置项已预留） |
 | PostgreSQL / Redis 实装 | 🚧 仅有 DDL 与仓储接口，实际始终走内存 |
 | 前端统一入口 | ✅ 四类数据源版本：收件箱 / 待办 / 全链路回放 / 平台账号（含模式 Tag、缺失变量、模拟发送计数、首启 3 步引导、断连如实显示） |
+| 前端设计系统与可访问性 | ✅ 设计令牌化（标签色板从一个品牌色派生明暗两套、圆角与字号成尺阶）、标签文字对比度 ≥4.5 有回归测试锁定、移动端安全区 + 44px 命中区、`pnpm --filter @unimsg/web lint:css` 样式护栏 |
 
 ## 功能特性（对应业务闭环五要素）
 
@@ -182,11 +183,21 @@ received → processing → replied → sent → synced
 - **边界降级**：限流令牌桶 + 指数退避只作用于发送路径（每平台容量 60、每秒补 30，重试上限 `SEND_MAX_RETRY`）；OCR 置信度低于 `OCR_CONFIDENCE_THRESHOLD`（默认 0.7）标记「待人工确认」；LLM 超时 / 失败回退「未分类」，绝不伪造意图；重试耗尽写入 DLQ。
 - **密钥安全**：平台 / 大模型 / OCR 凭据只从服务端环境变量读取，绝不以 `VITE_` 注入前端，`.env` 已被 `.gitignore` 忽略。
 
+## 前端设计与可访问性
+
+界面不是“套一层 AntD”就算完，而是自成一套令牌与约束——演示时最容易被追问的恰恰是“你这个配色、字号有没有依据”。
+
+- **颜色只有一个来源**：平台与状态标签的品牌色写一次，`utils/format.ts` 的 `tone()` 派生浅底、浅底墨色、暗色底、暗底墨色四支；墨色用 `utils/ink.ts` 的 `readableInk()` 按 WCAG 对比度反推（保留色相、只压明度），同类标签 ≥4.5:1 由单测锁定。暗色主题不再用 `!important` 硬压内联样式，而是换一套同名变量。
+- **尺阶**：圆角只有 6 / 8 / 10 / 12 / 16 + 胶囊五档；字号全部用 rem（1rem = 16px），浏览器“默认字号”设置能真正放大界面；间距与圆角保持 px——那是视觉密度，不跟字号缩放。
+- **移动端**：`viewport-fit=cover` + `100dvh` + `env(safe-area-inset-*)`，Toast 抬到底部导航之上；`(hover: none) / (pointer: coarse)` 下行内操作常显、命中区 44px（桌面仍是 26px + 悬停出现）。实测 320 / 360 / 375 无横向溢出。
+- **动效**：位移一律走 `transform`（图标轨高光不再动 `top`）；`prefers-reduced-motion` 与站内“减弱动效”偏好双路径生效。
+- **护栏**：`pnpm --filter @unimsg/web lint:css` 跑 `packages/web/scripts/check-styles.mjs`，锁住五条容易退化的规矩（字号 rem、色值走令牌、位移走 transform、暗色块禁 `!important`、圆角用尺阶）。没用 stylelint：现成规则集会在这份样式文件上刷出几百条格式错误，收益低于成本。
+
 ## 技术栈
 
 - 运行时：Node.js ≥ 20（本机实测 24.14.0）、TypeScript 5.6
 - 后端：Express 4、ws（WebSocket）
-- 前端：React 18 + Vite 5 + TypeScript + Ant Design 5（Mock / 真实后端双模式，由 `VITE_API_BASE` 切换）
+- 前端：React 18 + Vite 5 + TypeScript + Ant Design 5（Mock / 真实后端双模式，由 `VITE_API_BASE` 切换）；设计令牌集中在 `packages/web/src/styles/app.css`，标签配色由 `utils/ink.ts` 按对比度推导
 - 真实接入：飞书 / 钉钉 / 企微适配器使用 Node 内置 `fetch` + 进程内 token 缓存；钉钉收消息使用官方 `dingtalk-stream`（唯一的额外依赖）；邮箱使用自研 IMAP/SMTP 客户端（`node:tls` / `node:net`，零额外依赖）
 - 仓储：内存实现（当前唯一实现）；PostgreSQL 仅有 `001_init.sql` 与仓储接口，尚无 PgRepository；Redis 未接入
 - 智能：LLM / OCR 均为规则 Mock；文心 / 通义 / 腾讯云 OCR 只保留配置项，真实调用未实现
@@ -209,6 +220,10 @@ LinkHub-test/
 └── unimsg-connector/           # pnpm monorepo 源码
     ├── packages/shared/src/message.ts      # 前后端共享契约（含 delivery）
     ├── packages/web/                       # 前端（React + AntD，账号页含模式标注、首启 3 步引导）
+    │   ├── src/styles/app.css               # 设计令牌（色板 / 圆角 / 字号尺阶）与全部样式
+    │   ├── src/utils/ink.ts                 # 对比度计算与墨色推导（标签文字色）
+    │   ├── src/utils/format.ts              # tone()：一个品牌色派生整套明暗标签色板
+    │   ├── scripts/check-styles.mjs         # 样式护栏（rem / 令牌 / transform / 禁 !important / 圆角尺阶）
     │   └── README.md                       # 前端说明（模式 / 环境变量相关小节）
     ├── packages/server/src/
     │   ├── config/runtime.ts  # 运行模式解析 / 邮箱多账号解析（可替换性核心）
@@ -224,6 +239,7 @@ LinkHub-test/
     │   ├── db/                # 仓储 + migrations/001_init.sql
     │   └── app.ts / index.ts / ws.ts
     ├── scripts/               # smoke.py + e2e.ps1 / e2e.sh + deliver.mjs（交付打包）
+    │                          # shot.mjs（CDP 截图走查）/ push-via-api.mjs（github.com 不可达时改走 API）
     ├── .env.example           # 配置模板（配置的权威来源）
     └── .mail-watermarks.json  # （运行时生成，已 gitignore）邮箱 UID 水位，重启续传
 ```
@@ -386,7 +402,7 @@ pnpm install
 |---|---|
 | `pnpm typecheck` | `shared` / `server` / `web` 三包检查通过（exit 0） |
 | `pnpm test`（server） | **217 passed / 217**（16 个测试文件：连接器、真实适配器、MIME、IMAP 水位/目录、webhook HTTP 级、app/CORS、doctor 探针/渲染/拼写检查等），约 1–2s |
-| `pnpm test:web` | **76 passed / 76**（11 个测试文件：HttpApi / WsRealtime / AppStore / MockApi / AccountsPage / FirstRunGuide / footerState / InboxPage / MessageCard / ReplyComposer / format） |
+| `pnpm test:web` | **112 passed / 112**（16 个测试文件：httpApi / wsRealtime / appStore / mockApi / demoSamples / AccountsPage / FirstRunGuide / InboxPage / MessageCard / ReplyComposer / format / ink / due / footerState / morph / sparkline） |
 | `pnpm e2e`（Windows PowerShell，默认 3001） | **20 项断言全部 PASS + `SMOKE OK`**，exit 0（约 10s）；强制四平台 `mock`，完全离线 |
 | `pnpm e2e:sh`（Git Bash，3123 端口） | 同上，**20 项 PASS + `SMOKE OK`**（CI 使用此命令） |
 | 契约自检（后端起 mock 后） | `node packages/web/scripts/verify-contract.mjs http://127.0.0.1:3001 dev-token` → **46 PASS / 0 FAIL**（含 `modes` / `sentMock` / `mode`+`policy` / 邮箱账号明细 / `delivery` / WS 握手） |
@@ -491,7 +507,8 @@ pnpm install
 | `pnpm start` | 启动服务（:3001） |
 | `pnpm typecheck` | TypeScript 类型检查（shared + server + web） |
 | `pnpm test` | 服务端单元测试（217 条，含 doctor / webhook / MIME / 水位） |
-| `pnpm test:web` | 前端单元测试（73 条） |
+| `pnpm test:web` | 前端单元测试（112 条） |
+| `pnpm --filter @unimsg/web lint:css` | 样式护栏：字号 rem / 色值走令牌 / 位移走 transform / 暗色块禁 `!important` / 圆角用尺阶 |
 | `pnpm run doctor` | 只读自检：环境 + 模式 + 逐平台探针 + 出口公网 IP + 中文修复建议；有 FAIL 时退出码 1 |
 | `pnpm run doctor -- --platform=feishu,mail` | 只检查指定平台 |
 | `pnpm run doctor -- --help` | 查看 doctor 全部参数与退出码 |
