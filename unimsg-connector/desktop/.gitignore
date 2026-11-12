@@ -1,0 +1,5 @@
+# 构建产物与缓存（Electron 运行时约 110MB，不进仓库）
+dist/
+.cache/
+node_modules/
+*.log

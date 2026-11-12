@@ -12,11 +12,13 @@
     "test:web": "pnpm --filter @unimsg/web test",
     "e2e": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/e2e.ps1",
     "e2e:sh": "bash scripts/e2e.sh",
-    "deliver": "node scripts/deliver.mjs"
+    "deliver": "node scripts/deliver.mjs",
+    "app:build": "pnpm --filter linkhub-desktop build",
+    "desktop:icon": "python desktop/scripts/make-icon.py",
+    "app:build:lite": "pnpm --filter linkhub-desktop build:lite"
   },
   "packageManager": "pnpm@9.15.9",
   "engines": {
     "node": ">=20"
   }
 }
-

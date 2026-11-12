@@ -1,0 +1,18 @@
+{
+  "name": "linkhub-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "LinkHub 桌面版（Electron 壳 + 内嵌本地服务），打包为 Windows 便携 App",
+  "main": "main.cjs",
+  "type": "commonjs",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:app": "node scripts/build.mjs --skip-zip",
+    "icon": "python scripts/make-icon.py",
+    "build:lite": "node scripts/build.mjs --lite"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.2",
+    "resedit": "^3.1.0"
+  }
+}
