@@ -174,3 +174,14 @@ unimsg-connector/scripts/wechat-rpa/outbox/
 # Python 运行时缓存（RPA 桥脚本 + 其单测）
 __pycache__/
 *.pyc
+
+# 本地临时/备份目录（不入库）
+.local-features-*/
+.tmp-clone*/
+.tmp-fetch/
+_testrun/
+dws-data/
+unimsg-connector/.dws-data/
+
+# 本地临时实例数据
+unimsg-connector/.tmp-*/
