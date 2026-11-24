@@ -23,7 +23,6 @@ import {
   LinkOutlined,
   MailOutlined,
   ReloadOutlined,
-  RocketOutlined,
   SettingOutlined,
   ThunderboltOutlined,
   WechatOutlined,
@@ -31,6 +30,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useAppState } from '../../hooks/useAppState';
 import { Platform } from '../../types';
+import { PlatformGlyph } from '../../components/PlatformGlyph';
 import type {
   AppConfigSaveResult,
   MailAccountView,
@@ -63,7 +63,7 @@ import {
 const STEP_ICON: Record<string, ReactNode> = {
   mail: <MailOutlined />,
   dingtalk: <DingdingOutlined />,
-  feishu: <RocketOutlined />,
+  feishu: <PlatformGlyph platform={Platform.FEISHU} size={16} />,
   wechat: <WechatOutlined />,
 };
 
