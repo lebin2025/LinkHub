@@ -130,11 +130,9 @@ export async function listDirectory(platform: Platform): Promise<DirectoryResult
   if (platform === Platform.FEISHU) {
     result = await listFeishu();
   } else if (platform === Platform.DINGTALK) {
-    // 钉钉个人事件自带会话名，会话目标仍以「已有会话」为准；不臆造通讯录
-    result = unavailable(
-      Platform.DINGTALK,
-      '钉钉目前只能发给「已有会话」：会话名来自收到的消息。按钉钉号给人发新会话需要额外授权。',
-    );
+    // 钉钉会话名录：`dws chat +chat-list` 能拿到真实群名/对方昵称，
+    // 个人事件本身不带名字，所以左栏会话名和「发送给」选择器都依赖这里。
+    result = await listDingtalk();
   } else if (platform === Platform.WECHAT) {
     result = unavailable(Platform.WECHAT, '微信走 RPA 通道，按好友昵称/群名定位，无通讯录名录。');
   } else {
