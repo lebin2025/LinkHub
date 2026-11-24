@@ -61,6 +61,19 @@
   --danger: #d70015;
   --danger-soft: #fdecee;
 
+  /* 看板数据色板：入站 indigo / 出站 amber / 已回复 emerald / 待处理 amber / 失败 rose。
+     只服务统计页（.stats-*），不参与全局品牌色；soft / ink 成对给出，
+     暗色主题在 [data-theme='dark'] 里整组覆盖，规则里不出现第二处色值。 */
+  --stats-in: #6366f1;
+  --stats-in-soft: #eef2ff;
+  --stats-in-ink: #4338ca;
+  --stats-out: #f59e0b;
+  --stats-out-soft: #fffbeb;
+  --stats-ok: #059669;
+  --stats-ok-soft: #ecfdf5;
+  --stats-warn: #d97706;
+  --stats-bad: #e11d48;
+
   /* 主操作按钮：与顶栏「新建发送」统一为品牌蓝（主操作只此一种颜色） */
   --send: #007aff;
   --send-hover: #0068d9;
@@ -202,6 +215,17 @@
   --warning-soft: #2a1d0a;
   --danger: #ff453a;
   --danger-soft: #2b1315;
+
+  /* 看板数据色板（暗色）：同色相提亮一档，soft 底色压到深灰，保证 ≥4.5:1 */
+  --stats-in: #818cf8;
+  --stats-in-soft: #1e1b4b;
+  --stats-in-ink: #c7d2fe;
+  --stats-out: #fbbf24;
+  --stats-out-soft: #2a1d0a;
+  --stats-ok: #34d399;
+  --stats-ok-soft: #0f2a17;
+  --stats-warn: #fbbf24;
+  --stats-bad: #fb7185;
 
   --send: #0a84ff;
   --send-hover: #3d9bff;
@@ -8666,6 +8690,17 @@ html.vt-morph .detail {
   transform: scale(1.06);
 }
 
+/* 悬停反馈对「选中 / 高光项」同样生效。
+   上面把 is-active / is-focus 的背景写死成 transparent，是为了让果冻高光独占选中态；
+   副作用是点进「自动回复」「看板」之后，这两项（正好是新的选中项）hover 毫无反应。
+   这里补回一层浅灰底：字色仍交给选中态（品牌蓝 / 铜色），只让「鼠标在这里」可感知。 */
+.side-link:hover,
+.side-link.is-active:hover,
+.side-link.is-focus:hover,
+.side-link.is-focus-platform:hover {
+  background: var(--hover-fill);
+}
+
 /* 计数缩成右上角小徽标 —— 图标轨道没有第二列放数字 */
 .side-link__count {
   position: absolute;
@@ -10871,32 +10906,304 @@ html.vt-morph .detail {
   font-size: 0.75rem;
 }
 
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 12px;
+/* ------------------------------------------------------------------
+ * 看板（Stats）：现代数据看板版式
+ *
+ * 版式：浅灰桌面 + 白色卡片（16px 圆角 / 1px 描边 / 柔和阴影 / hover 上浮）；
+ *       KPI 2 → 3 → 6 列响应式网格；趋势 3 : 平台 2 的双栏，窄屏自动堆叠。
+ * 颜色：入站 indigo / 出站 amber / 已回复 emerald / 待处理 amber / 失败 rose，
+ *       全部来自 --stats-*；描边与阴影仍复用全局令牌，暗色成对覆盖。
+ * 注意：这里只管版式，数值与交互一律留在组件里（导出 / 刷新 / 7·30 天筛选）。
+ * ------------------------------------------------------------------ */
+
+.stats-head {
+  align-items: flex-start;
+  margin-bottom: 20px;
+}
+
+.stats-head__lead {
+  min-width: 0;
+  max-width: 68ch;
+}
+
+.stats-head__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 顶部操作：导出走「无框文字按钮」，刷新用 indigo 软底强调——比全白卡更轻 */
+.stats-page .stats-head__actions .ant-btn {
+  height: 34px;
+  padding: 0 12px;
+  border-radius: var(--r-10);
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-2);
+  font-size: 0.8125rem;
+}
+
+.stats-page .stats-head__actions .ant-btn:not(:disabled):hover {
+  background: var(--surface-3) !important;
+  box-shadow: none;
+}
+.stats-page .stats-head__actions .ant-btn:disabled,
+.stats-page .stats-head__actions .ant-btn.ant-btn-disabled {
+  color: var(--text-3);
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+
+.stats-page .stats-head__actions .stats-action--refresh.ant-btn {
+  background: var(--stats-in-soft);
+  color: var(--stats-in-ink);
+  font-weight: 600;
+}
+
+.stats-page .stats-head__actions .stats-action--refresh.ant-btn:not(:disabled):hover {
+  background: color-mix(in srgb, var(--stats-in) 16%, var(--stats-in-soft)) !important;
+  color: var(--stats-in-ink) !important;
+}
+
+.stats-alert {
   margin-bottom: 16px;
 }
 
-.stats-platform-card {
-  margin-bottom: 8px;
+/* ---------------- KPI 卡片：2 / 3 / 6 列 ---------------- */
+
+.stats-kpis {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
 }
 
-/* ------------------------------------------------------------------
- * 看板导出 + 趋势（评审 P1-7）
- * 趋势图是内联 SVG：柱色 / 基线 / 轴文字全部走令牌，
- * 暗色主题自动跟随，不出现第二处色值真相。
- * ------------------------------------------------------------------ */
-
-.stats-trend-card {
-  margin-bottom: 8px;
+@media (min-width: 720px) {
+  .stats-kpis {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
+
+@media (min-width: 1200px) {
+  .stats-kpis {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+
+.stats-card,
+.stats-panel {
+  background: var(--surface);
+  border-radius: var(--r-16);
+  /* 1px 描边用内阴影实现：不占布局，也不会把 16px 圆角切出锯齿 */
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 62%, transparent), var(--shadow-sm);
+  transition: transform var(--dur-base) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out), background-color var(--dur-base) var(--ease-out);
+}
+
+[data-theme='dark'] .stats-card,
+[data-theme='dark'] .stats-panel {
+  background: var(--container);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 70%, transparent), var(--shadow-sm);
+}
+
+.stats-card:hover,
+.stats-panel:hover {
+  transform: translateY(-2px);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 90%, transparent), var(--shadow-card);
+}
+
+[data-theme='dark'] .stats-card:hover,
+[data-theme='dark'] .stats-panel:hover {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border-strong) 80%, transparent), var(--shadow-card);
+}
+
+.stats-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 16px 18px 14px;
+}
+
+.stats-page .stats-card .ant-statistic {
+  line-height: 1;
+}
+
+.stats-page .stats-card .ant-statistic-title {
+  margin-bottom: 8px;
+  color: var(--text-2);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stats-page .stats-card .ant-statistic-content {
+  font-family: var(--font-display);
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.stats-page .stats-card .ant-statistic-content-suffix {
+  margin-inline-start: 4px;
+  color: var(--text-3);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.stats-card__hint {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 0.6875rem;
+  line-height: 1.4;
+}
+
+/* 语义色：数字本身就是最强的视觉信号，标签保持中性灰 */
+.stats-page .stats-card--replied .ant-statistic-content {
+  color: var(--stats-ok);
+}
+
+.stats-page .stats-card--pending .ant-statistic-content {
+  color: var(--stats-warn);
+}
+
+.stats-page .stats-card--failed .ant-statistic-content {
+  color: var(--stats-bad);
+}
+
+.stats-card--replied .stats-card__hint {
+  color: color-mix(in srgb, var(--stats-ok) 78%, var(--text-3));
+}
+
+.stats-card--pending .stats-card__hint {
+  color: color-mix(in srgb, var(--stats-warn) 78%, var(--text-3));
+}
+
+.stats-card--failed .stats-card__hint {
+  color: color-mix(in srgb, var(--stats-bad) 78%, var(--text-3));
+}
+
+/* 「0 / 6」这类复合值与「暂无样本」都带单位文字，字号收一档更稳 */
+.stats-page .stats-card--todos .ant-statistic-content,
+.stats-page .stats-card--avg .ant-statistic-content {
+  font-size: 1.5rem;
+}
+
+.stats-page .stats-card--avg .ant-statistic-content {
+  white-space: nowrap;
+}
+
+/* ---------------- 趋势 + 平台分布：3 : 2 双栏 ---------------- */
+
+.stats-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+
+@media (min-width: 1100px) {
+  .stats-main {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  }
+}
+
+.stats-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 20px 22px 18px;
+}
+
+.stats-panel:hover {
+  /* 大卡片只轻抬 1px：上浮是「可交互」的暗示，不该抢数字的风头 */
+  transform: translateY(-1px);
+}
+
+.stats-panel__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px 12px;
+  margin-bottom: 16px;
+}
+
+.stats-panel__titles {
+  min-width: 0;
+}
+
+.stats-panel__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  color: var(--text);
+}
+
+.stats-panel__sub {
+  margin: 3px 0 0;
+  color: var(--text-3);
+  font-size: 0.75rem;
+}
+
+.stats-panel__empty {
+  margin: 0;
+  padding: 30px 0;
+  color: var(--text-3);
+  font-size: 0.8125rem;
+  text-align: center;
+}
+
+/* 近 7 天 / 近 30 天：胶囊分段，选中态用 indigo 软底（与入站柱同色相） */
+.stats-page .stats-range.ant-segmented {
+  flex: 0 0 auto;
+  padding: 3px;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+}
+
+.stats-page .stats-range .ant-segmented-item {
+  border-radius: var(--r-pill);
+  color: var(--text-3);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.stats-page .stats-range .ant-segmented-item-label {
+  min-height: 24px;
+  padding: 0 11px;
+  line-height: 24px;
+}
+
+.stats-page .stats-range .ant-segmented-thumb,
+.stats-page .stats-range .ant-segmented-item-selected {
+  border-radius: var(--r-pill);
+  background: var(--stats-in-soft);
+  box-shadow: none;
+}
+
+.stats-page .stats-range .ant-segmented-item-selected {
+  color: var(--stats-in-ink);
+  font-weight: 600;
+}
+
+/* ---------------- 趋势图（内联 SVG） ---------------- */
 
 .stats-trend__legend {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 16px;
-  margin: 0 0 8px;
+  margin: 0 0 10px;
   color: var(--text-2);
   font-size: 0.75rem;
 }
@@ -10910,47 +11217,157 @@ html.vt-morph .detail {
 }
 
 .stats-trend__dot--in {
-  background: var(--brand);
+  background: var(--stats-in);
 }
 
 .stats-trend__dot--out {
-  background: var(--copper);
+  background: var(--stats-out);
 }
 
 .stats-trend__peak {
   margin-left: auto;
   color: var(--text-3);
+  font-variant-numeric: tabular-nums;
 }
 
 .stats-trend__chart {
   display: block;
   width: 100%;
   height: auto;
+  overflow: visible;
+}
+
+.stats-trend__bar {
+  transition: opacity var(--dur-fast) var(--ease-out);
 }
 
 .stats-trend__bar--in {
-  fill: var(--brand);
+  fill: var(--stats-in);
 }
 
 .stats-trend__bar--out {
-  fill: var(--copper);
+  fill: var(--stats-out);
 }
 
+/* 只留一条极淡的基线充当 0 轴：去掉多余网格线，柱子自己说话 */
 .stats-trend__baseline {
-  stroke: var(--border-strong);
+  stroke: color-mix(in srgb, var(--border) 70%, transparent);
+  stroke-width: 1;
 }
 
 .stats-trend__axis {
   fill: var(--text-3);
   font-size: 0.625rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .stats-trend__empty {
   margin: 0;
-  padding: 28px 0;
+  padding: 40px 0;
   color: var(--text-3);
   font-size: 0.8125rem;
   text-align: center;
+}
+
+/* ---------------- 平台分布：列表卡片 ---------------- */
+
+.stats-platforms {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stats-platform {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+}
+
+.stats-platform:first-child {
+  padding-top: 2px;
+}
+
+.stats-platform:last-child {
+  padding-bottom: 2px;
+  border-bottom: 0;
+}
+
+.stats-platform__glyph {
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-10);
+  background: var(--tag-soft);
+  color: var(--tag-ink);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+[data-theme='dark'] .stats-platform__glyph {
+  background: var(--tag-soft-dark);
+  color: var(--tag-ink-dark);
+}
+
+.stats-platform__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.stats-platform__name {
+  color: var(--text);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.stats-platform__total {
+  color: var(--text-3);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-platform__counts {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.stats-platform__replied {
+  color: var(--stats-ok);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.stats-platform__rest {
+  color: var(--text-3);
+  font-size: 0.6875rem;
+  line-height: 1.4;
+}
+
+/* ---------------- 底部状态行 ---------------- */
+
+.stats-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 14px 2px 0;
+  color: var(--text-3);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
 }
 
 

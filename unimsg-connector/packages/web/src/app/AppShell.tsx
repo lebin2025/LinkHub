@@ -126,6 +126,8 @@ function SideLink({
 function navKeyOf(pathname: string): string {
   if (pathname.startsWith('/todos')) return 'to:/todos';
   if (pathname.startsWith('/trace')) return 'to:/trace';
+  if (pathname.startsWith('/auto-reply')) return 'to:/auto-reply';
+  if (pathname.startsWith('/stats')) return 'to:/stats';
   if (pathname.startsWith('/connect')) return 'to:/connect';
   if (pathname.startsWith('/accounts')) return 'to:/accounts';
   return 'to:/inbox';

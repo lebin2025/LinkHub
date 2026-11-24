@@ -5,20 +5,21 @@
  *  - 平均处理时长 = 闭环日志里「收到/composed」到「sent」的秒差均值；
  *  - 真实 / Mock 分开展示，绝不把模拟发送算成真实送达；
  *  - 没有样本时显示「暂无样本」，不伪造 0。
+ *
+ * 视觉（2024 数据看板改版）：只动版式与配色，数据 / 交互 / 导出 / 趋势筛选
+ * 全部沿用原实现——KPI 走 2/3/6 列响应式网格，趋势图仍是内联 SVG（零图表库），
+ * 平台分布从表格改成列表卡片，颜色全部走 app.css 的 --stats-* 令牌。
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, Segmented, Space, Statistic, Table, Tag } from 'antd';
-import type { ColumnsType } from 'antd/es/table';
+import { Alert, Button, Segmented, Spin, Statistic } from 'antd';
 import { DownloadOutlined, FileTextOutlined, ReloadOutlined } from '@ant-design/icons';
-import { platformMeta } from '../../utils/format';
+import { platformMeta, toneStyle } from '../../utils/format';
 import { saveBlobAsFile } from '../../utils/download';
 import { dailyTrend, messagesToCsv, statsExportFilename, statsToMarkdown } from '../../utils/export';
 import type { DailyTrendPoint } from '../../utils/export';
-import type { Platform, StatsOverview } from '../../types';
+import type { StatsOverview } from '../../types';
 import { useAppState } from '../../hooks/useAppState';
 import { store } from '../../store';
-
-type PlatformRow = StatsOverview['byPlatform'][number];
 
 /** 趋势图的画布尺寸（viewBox 内部单位，与 CSS 像素无关，svg 等比缩放） */
 const TREND_W = 560;
@@ -33,6 +34,7 @@ const TREND_PAD_TOP = 6;
  *
  * 数据形状很简单（每天入站/出站两个数），与其背上第三方图表库不如几十行画完；
  * 每天一组「入站 / 出站」柱，用原生 <title> 当 tooltip——零依赖且屏幕阅读器也能读。
+ * 改版只加了圆角与语义色（入站 indigo / 出站 amber），几何计算一行未动。
  */
 function TrendChart({ points, days }: { points: DailyTrendPoint[]; days: 7 | 30 }) {
   const hasTraffic = points.some((p) => p.inbound > 0 || p.outbound > 0);
@@ -46,6 +48,8 @@ function TrendChart({ points, days }: { points: DailyTrendPoint[]; days: 7 | 30 
   const max = Math.max(1, ...points.map((p) => Math.max(p.inbound, p.outbound)));
   const slot = TREND_W / points.length;
   const barW = Math.min(12, Math.max(3, slot * 0.26));
+  // 柱顶圆角：不超过柱宽的一半，窄柱也不会被削成菱形
+  const barR = Math.min(6, barW / 2);
   const hOf = (v: number) => (v / max) * plotH;
   // 轴标签密度：7 天每天标，30 天每 5 天标一个，避免文字互相叠
   const labelStep = days === 7 ? 1 : 5;
@@ -77,6 +81,8 @@ function TrendChart({ points, days }: { points: DailyTrendPoint[]; days: 7 | 30 
                   y={baseline - hIn}
                   width={barW}
                   height={hIn}
+                  rx={barR}
+                  ry={barR}
                   className="stats-trend__bar stats-trend__bar--in"
                 />
               )}
@@ -86,6 +92,8 @@ function TrendChart({ points, days }: { points: DailyTrendPoint[]; days: 7 | 30 
                   y={baseline - hOut}
                   width={barW}
                   height={hOut}
+                  rx={barR}
+                  ry={barR}
                   className="stats-trend__bar stats-trend__bar--out"
                 />
               )}
@@ -100,6 +108,22 @@ function TrendChart({ points, days }: { points: DailyTrendPoint[]; days: 7 | 30 
       </svg>
     </div>
   );
+}
+
+/**
+ * 平均处理时长：按实际时间显示，单位随量级自动切换（秒 / 分钟 / 小时）。
+ *
+ * 只做显示换算：后端仍返回秒（avgHandleSeconds），导出与口径一概不参与。
+ * 阈值按「人读起来最自然」取：< 60 秒用秒，< 60 分钟用分钟，再多用小时；
+ * 分钟 / 小时保留一位小数，避免 0.0017 小时这种看不出量级的写法。
+ */
+function formatAvgHandle(seconds: number): { value: string; suffix: string } {
+  const s = Math.round(seconds);
+  if (s < 60) return { value: String(s), suffix: '秒' };
+  // 按 0.1 分钟取整后再判档，避免 3599 秒显示成「60.0 分钟」这种别扭值
+  const minutes = Math.round(seconds / 6) / 10;
+  if (minutes < 60) return { value: minutes.toFixed(1), suffix: '分钟' };
+  return { value: (Math.round(seconds / 360) / 10).toFixed(1), suffix: '小时' };
 }
 
 export function StatsPage() {
@@ -148,94 +172,142 @@ export function StatsPage() {
     );
   };
 
-  const columns: ColumnsType<PlatformRow> = [
-    {
-      title: '平台',
-      dataIndex: 'platform',
-      render: (p: Platform) => <Tag>{platformMeta(p).name}</Tag>,
-    },
-    { title: '消息总数', dataIndex: 'total', sorter: (a, b) => a.total - b.total },
-    { title: '已回复', dataIndex: 'replied' },
-    { title: '待处理', dataIndex: 'pending' },
-    { title: '失败', dataIndex: 'failed' },
-  ];
-
   const totals = data?.totals;
+  const platformRows = data?.byPlatform ?? [];
+  // 平均处理时长：null 保持「暂无样本」，有样本时按量级选单位（秒 / 分钟 / 小时）
+  const avgHandle =
+    data && data.avgHandleSeconds !== null ? formatAvgHandle(data.avgHandleSeconds) : null;
 
   return (
     <div className="page stats-page">
-      <header className="page__head page__head--row">
-        <div>
+      <header className="page__head page__head--row stats-head">
+        <div className="stats-head__lead">
           <h1 className="page__title">看板</h1>
           <p className="auto-reply-page__sub">
             数据来自收件箱与闭环日志本身；平均处理时长只统计「收到 → 已发出」都留痕的样本。
           </p>
         </div>
-        <Space wrap>
-          <Button icon={<DownloadOutlined />} onClick={exportCsv}>
+        <div className="stats-head__actions">
+          <Button icon={<DownloadOutlined />} onClick={exportCsv} className="stats-action">
             导出 CSV
           </Button>
-          <Button icon={<FileTextOutlined />} onClick={exportMarkdown} disabled={!data}>
+          <Button
+            icon={<FileTextOutlined />}
+            onClick={exportMarkdown}
+            disabled={!data}
+            className="stats-action"
+          >
             导出 Markdown
           </Button>
-          <Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()}>
+          <Button
+            icon={<ReloadOutlined />}
+            loading={loading}
+            onClick={() => void load()}
+            className="stats-action stats-action--refresh"
+          >
             刷新
           </Button>
-        </Space>
+        </div>
       </header>
 
-      {error && <Alert type="warning" showIcon message={error} />}
+      {error && <Alert type="warning" showIcon message={error} className="stats-alert" />}
 
       {totals && (
-        <div className="stats-grid">
-          <Card size="small"><Statistic title="消息总数" value={totals.messages} /></Card>
-          <Card size="small"><Statistic title="已回复" value={totals.replied} /></Card>
-          <Card size="small"><Statistic title="待处理" value={totals.pending} /></Card>
-          <Card size="small"><Statistic title="失败" value={totals.failed} valueStyle={{ color: 'var(--danger)' }} /></Card>
-          <Card size="small">
+        <section className="stats-kpis" aria-label="核心指标">
+          <article className="stats-card stats-card--total">
+            <Statistic title="消息总数" value={totals.messages} />
+            <p className="stats-card__hint">全部平台合计</p>
+          </article>
+          <article className="stats-card stats-card--replied">
+            <Statistic title="已回复" value={totals.replied} />
+            <p className="stats-card__hint">已有回复</p>
+          </article>
+          <article className="stats-card stats-card--pending">
+            <Statistic title="待处理" value={totals.pending} />
+            <p className="stats-card__hint">尚未处理</p>
+          </article>
+          <article className="stats-card stats-card--failed">
+            <Statistic title="失败" value={totals.failed} />
+            <p className="stats-card__hint">发送失败</p>
+          </article>
+          <article className="stats-card stats-card--todos">
             <Statistic title="待办 / 已完成" value={`${totals.todos} / ${totals.done}`} />
-          </Card>
-          <Card size="small">
+            <p className="stats-card__hint">闭环任务</p>
+          </article>
+          <article className="stats-card stats-card--avg">
             <Statistic
               title="平均处理时长"
-              value={data.avgHandleSeconds === null ? '暂无样本' : data.avgHandleSeconds}
-              {...(data.avgHandleSeconds === null ? {} : { suffix: '秒' })}
+              value={avgHandle ? avgHandle.value : '暂无样本'}
+              {...(avgHandle ? { suffix: avgHandle.suffix } : {})}
             />
-          </Card>
-        </div>
+            <p className="stats-card__hint">收到 → 已发出</p>
+          </article>
+        </section>
       )}
 
-      <Card
-        size="small"
-        title="趋势"
-        className="stats-trend-card"
-        extra={
-          <Segmented
-            value={trendDays}
-            onChange={(v) => setTrendDays(v as 7 | 30)}
-            options={[
-              { label: '近 7 天', value: 7 },
-              { label: '近 30 天', value: 30 },
-            ]}
-          />
-        }
-      >
-        <TrendChart points={trend} days={trendDays} />
-      </Card>
+      <div className="stats-main">
+        <section className="stats-panel stats-panel--trend" aria-label="趋势">
+          <header className="stats-panel__head">
+            <div className="stats-panel__titles">
+              <h2 className="stats-panel__title">趋势</h2>
+              <p className="stats-panel__sub">近 {trendDays} 天入站 / 出站对比</p>
+            </div>
+            <Segmented
+              value={trendDays}
+              onChange={(v) => setTrendDays(v as 7 | 30)}
+              options={[
+                { label: '近 7 天', value: 7 },
+                { label: '近 30 天', value: 30 },
+              ]}
+              className="stats-range"
+            />
+          </header>
+          <TrendChart points={trend} days={trendDays} />
+        </section>
 
-      <Card size="small" title="平台分布" className="stats-platform-card">
-        <Table<PlatformRow>
-          rowKey="platform"
-          loading={loading}
-          columns={columns}
-          dataSource={data?.byPlatform ?? []}
-          pagination={false}
-          size="small"
-        />
-      </Card>
+        <section className="stats-panel stats-panel--platform" aria-label="平台分布">
+          <header className="stats-panel__head">
+            <div className="stats-panel__titles">
+              <h2 className="stats-panel__title">平台分布</h2>
+              <p className="stats-panel__sub">各渠道消息状态概览</p>
+            </div>
+          </header>
+          <Spin spinning={loading}>
+            <ul className="stats-platforms">
+              {platformRows.map((row) => {
+                const meta = platformMeta(row.platform);
+                return (
+                  <li key={row.platform} className="stats-platform">
+                    <span
+                      className="stats-platform__glyph"
+                      style={toneStyle(meta)}
+                      aria-hidden="true"
+                    >
+                      {meta.short}
+                    </span>
+                    <div className="stats-platform__main">
+                      <span className="stats-platform__name">{meta.name}</span>
+                      <span className="stats-platform__total">{row.total} 条消息</span>
+                    </div>
+                    <div className="stats-platform__counts">
+                      <span className="stats-platform__replied">{row.replied} 已回复</span>
+                      <span className="stats-platform__rest">
+                        {row.pending} 待处理 · {row.failed} 失败
+                      </span>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+            {!loading && platformRows.length === 0 && (
+              <p className="stats-panel__empty">暂无数据</p>
+            )}
+          </Spin>
+        </section>
+      </div>
 
       {data && (
-        <p className="auto-reply-page__hint">
+        <p className="stats-foot auto-reply-page__hint">
           生成时间 {new Date(data.generatedAt).toLocaleString()}；状态分布：
           {Object.entries(data.byStatus).map(([k, v]) => ` ${k}=${v}`).join(' · ') || ' 暂无'}
         </p>
